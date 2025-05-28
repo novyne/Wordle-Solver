@@ -128,15 +128,16 @@ class Solver:
 
         return candidates
 
-    def score_candidate_by_usefulness(self, candidate: str) -> float:
+    def score_candidate_by_usefulness(self, candidate: str, candidates: list[str]) -> float:
         """
         Scores a candidate word based on its usefulness.
 
         The score encourages the use of high frequency letters and discourages duplicate letters in the candidate word.
-        It also gives a small bonus for letters being in more likely positions based on WORDS.
+        It also gives a small bonus for letters being in more likely positions based on candidates.
         
         Args:
             candidate (str): The candidate word to score.
+            candidates (list[str]): The list of candidate words to use for positional frequency calculation.
         
         Returns:
             float: The calculated usefulness score for the candidate word.
@@ -147,29 +148,30 @@ class Solver:
         score = sum(26 - frequency.index(char) for char in candidate)
 
         # Discourage duplicate letters
-        score += len(set(candidate)) ** 1.5
+        score += len(set(candidate)) ** 3
 
         # Add positional letter frequency bonus
-        score += self.positional_letter_bonus(candidate)
+        score += self.positional_letter_bonus(candidate, candidates)
 
         return score
 
-    def positional_letter_bonus(self, candidate: str, sample_number: int = 100) -> float:
+    def positional_letter_bonus(self, candidate: str, candidates: list[str], sample_number: int = 100) -> float:
         """
         Calculates a bonus score for a candidate word based on how likely its letters are
-        to appear in their respective positions, referencing the WORDS list.
+        to appear in their respective positions, referencing the candidates list.
 
         Args:
             candidate (str): The candidate word to score.
-            sample_number (int): The number of words to sample from WORDS to calculate frequencies.
+            candidates (list[str]): The list of candidate words to use for positional frequency calculation.
+            sample_number (int): The number of words to sample from candidates to calculate frequencies.
 
         Returns:
             float: The positional letter frequency bonus.
         """
-        # Calculate positional frequencies for letters in WORDS
+        # Calculate positional frequencies for letters in candidates
         position_counts = [{} for _ in range(self.length)]
 
-        for word in rnd.choices(WORDS, k=sample_number):
+        for word in rnd.choices(candidates, k=sample_number):
             if len(word) != self.length:
                 continue
             for i, char in enumerate(word):
@@ -204,7 +206,7 @@ class Solver:
             list[str]: A list of the n most likely candidates.
         """
         
-        return sorted(candidates, key=self.score_candidate_by_usefulness, reverse=True)[:n]
+        return sorted(candidates, key=lambda c: self.score_candidate_by_usefulness(c, candidates), reverse=True)[:n]
 
     def update(self, guess: str, feedback: str) -> None:
         """
