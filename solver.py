@@ -1,5 +1,6 @@
 import argparse
 import os
+import random as rnd
 
 from typing import Optional, TypeAlias, Literal
 
@@ -14,12 +15,12 @@ if __name__ == "__main__":
 args = parser.parse_args()
 
 
-WORDS = set()
+wordset = set()
 for file in os.listdir():
     if file.endswith(".txt"):
         with open(file, "r") as f:
-            WORDS.update(f.read().splitlines())
-WORDS = list(w.lower() for w in WORDS if w.isalpha())
+            wordset.update(f.read().splitlines())
+WORDS: list[str] = list(w.lower() for w in wordset if w.isalpha() and len(w) == args.length)
 
 
 class Solver:
@@ -132,6 +133,7 @@ class Solver:
         Scores a candidate word based on its usefulness.
 
         The score encourages the use of high frequency letters and discourages duplicate letters in the candidate word.
+        It also gives a small bonus for letters being in more likely positions based on WORDS.
         
         Args:
             candidate (str): The candidate word to score.
@@ -145,9 +147,46 @@ class Solver:
         score = sum(26 - frequency.index(char) for char in candidate)
 
         # Discourage duplicate letters
-        score += len(set(candidate)) ** 2
+        score += len(set(candidate)) ** 1.5
+
+        # Add positional letter frequency bonus
+        score += self.positional_letter_bonus(candidate)
 
         return score
+
+    def positional_letter_bonus(self, candidate: str, sample_number: int = 100) -> float:
+        """
+        Calculates a bonus score for a candidate word based on how likely its letters are
+        to appear in their respective positions, referencing the WORDS list.
+
+        Args:
+            candidate (str): The candidate word to score.
+            sample_number (int): The number of words to sample from WORDS to calculate frequencies.
+
+        Returns:
+            float: The positional letter frequency bonus.
+        """
+        # Calculate positional frequencies for letters in WORDS
+        position_counts = [{} for _ in range(self.length)]
+
+        for word in rnd.choices(WORDS, k=sample_number):
+            if len(word) != self.length:
+                continue
+            for i, char in enumerate(word):
+                position_counts[i][char] = position_counts[i].get(char, 0) + 1
+
+        bonus = 0.0
+        for i, char in enumerate(candidate):
+            if i >= len(position_counts):
+                # Defensive check for candidate length mismatch
+                continue
+            char_count = position_counts[i].get(char, 0)
+            # Normalize by total words to get frequency
+            freq = char_count / sample_number
+            bonus += freq
+
+        # Scale bonus to be a small addition
+        return bonus * 10
 
     def most_likely_candidates(self, candidates: list[str], n: int=10) -> list[str]:
         """
