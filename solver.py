@@ -14,18 +14,20 @@ args = parser.parse_args()
 
 
 with open("words.txt", "r") as f:
-    WORDS = [word for word in f.read().splitlines() if len(word) == args.length]
+    WORDS = set(word for word in f.read().splitlines() if len(word) == args.length)
+with open("wordle-words.txt", "r") as f:
+    WORDS.update(word for word in f.read().splitlines() if len(word) == args.length)
 
 
 class Solver:
 
-    def __init__(self, greens: Optional[dict[str, int]] = None, yellows: Optional[dict[str, int]] = None, greys: Optional[list[str]] = None, length: int = 5):
+    def __init__(self, greens: Optional[dict[int, str]] = None, yellows: Optional[dict[str, set[int]]] = None, greys: Optional[list[str]] = None, length: int = 5):
         """
         Initializes the Solver with optional color maps and word length.
 
         Args:
-            greens (Optional[dict[str, int]], optional): Color map for green letters. Defaults to None.
-            yellows (Optional[dict[str, int]], optional): Color map for yellow letters. Defaults to None.
+            greens (Optional[dict[int, str]], optional): Map of position to green letter. Defaults to None.
+            yellows (Optional[dict[str, set[int]]], optional): Map of yellow letters to positions they cannot be in. Defaults to None.
             greys (Optional[list[str]], optional): List of grey letters. Defaults to None.
             length (int, optional): Word length. Defaults to 5.
         """
@@ -55,11 +57,11 @@ class Solver:
             bool: True if the word is legal, False otherwise.
         """
 
-        # Ensure that all green letters are present
-        if sum(1 for char in set(word) if char in self.greens) != len(self.greens):
-            return False
-
-        return all(((char in self.greens and self.greens[char] == i) or char not in self.greens) for i, char in enumerate(word))
+        # Check that all green positions have the correct letter
+        for pos, letter in self.greens.items():
+            if word[pos] != letter:
+                return False
+        return True
     
     def filter_by_greens(self, words: list[str]) -> list[str]:
         """
@@ -82,11 +84,15 @@ class Solver:
             bool: True if the word is legal, False otherwise.
         """
 
-        # Ensure that all yellow letters are present
-        if sum(1 for char in set(word) if char in self.yellows) != len(self.yellows):
-            return False
-        
-        return all(((char in self.yellows and self.yellows[char] != i) or char not in self.yellows) for i, char in enumerate(word))
+        # Check that all yellow letters are present in the word
+        for letter, bad_positions in self.yellows.items():
+            if word.count(letter) == 0:
+                return False
+            # Check that letter is not in any of the bad positions
+            for pos in bad_positions:
+                if word[pos] == letter:
+                    return False
+        return True
     
     def filter_by_yellows(self, words: list[str]) -> list[str]:
         """
@@ -162,19 +168,26 @@ class Solver:
         """
         Updates the Solver with a guess and its corresponding feedback.
 
-        The green letters are stored in a map of letter to index,
-        the yellow letters are stored in a map of letter to index,
+        The green letters are stored in a map of position to letter,
+        the yellow letters are stored in a map of letter to sets of positions they cannot be in,
         and the grey letters are stored in a list.
         The maps are updated based on the feedback.
         """
 
         for i, char in enumerate(guess):
             if feedback[i] == 'g':
-                self.greens[char] = i
+                self.greens[i] = char
                 if char in self.yellows:
-                    del self.yellows[char]
+                    # Remove this position from yellow positions if present
+                    if i in self.yellows[char]:
+                        self.yellows[char].remove(i)
+                    # If no more yellow positions for this char, remove the char key
+                    if not self.yellows[char]:
+                        del self.yellows[char]
             elif feedback[i] == 'y':
-                self.yellows[char] = i
+                if char not in self.yellows:
+                    self.yellows[char] = set()
+                self.yellows[char].add(i)
             elif feedback[i] == 'x':
                 if char not in self.greys:
                     self.greys.append(char)
@@ -194,7 +207,7 @@ def receive_word() -> str | Literal[False]:
     """
 
     while True:
-        word = input("Enter a word you have tried (DONE in all caps to end): ")
+        word = input("\nEnter a word you have tried (DONE in all caps to end): ")
         if word == "DONE":
             return False
         
@@ -203,6 +216,9 @@ def receive_word() -> str | Literal[False]:
             continue
         if len(word) != args.length:
             print("Please enter a word of the correct length.")
+            continue
+        if word not in WORDS:
+            print("Please enter a valid word. (Not in word list)")
             continue
         break
     return word
@@ -230,59 +246,49 @@ def receive_word_data() -> str:
 
     return returned_data
 
-def receive_input_data() -> tuple[dict[str, int], dict[str, int], list[str]]:
+def update_solver_from_input(solver: Solver) -> Solver:
     """
-    Prompts the user to enter the data for each word tried.
+    Continually prompts the user to enter a word and its corresponding colour data and updates the solver.
 
-    The function continually prompts the user to enter the word and its corresponding colour data until the user
-    indicates completion with "DONE". The word data is validated to ensure it only contains valid colours (g, y, x)
-    and matches the specified length.
+    Continually prompts the user to enter a word and its corresponding colour data until the user enters "DONE".
+    The data is validated and used to update the solver.
+
+    Args:
+        solver (Solver): The solver to be updated.
 
     Returns:
-        tuple[dict[str, int], dict[str, int], list[str]]: A tuple containing the green letters, yellow letters and grey letters.
+        Solver: The updated solver.
     """
 
-    greens = {}
-    yellows = {}
-    greys = []
-    
     while True:
 
         word = receive_word()
         if word is False:
-            return greens, yellows, greys
+            return solver
         
         returned_data = receive_word_data()
 
-        for i, char in enumerate(word):
-            if returned_data[i] == 'g':
-                greens[char] = i
-                if char in yellows:
-                    del yellows[char]
+        solver.update(word, returned_data)
 
-            elif returned_data[i] == 'y':
-                yellows[char] = i
-            elif returned_data[i] == 'x':
-                greys.append(char)
-
-def format_candidates(candidates: list[str]) -> list[str]:
-    return [f"{word} ({i+1})" for i, word in enumerate(candidates)]
+def format_candidates(candidates: list[str]) -> str:
+    return "".join(word.ljust(10 + args.length) for word in candidates)
 
 
 def main():
 
-    greens, yellows, greys = receive_input_data()
+    solver = Solver()
 
-    solver = Solver(greens, yellows, greys, args.length)
+    while True:
+        solver = update_solver_from_input(solver)
 
-    candidates = solver.candidates(WORDS)
-    candidates = solver.most_likely_candidates(candidates, args.candidate_number)
+        candidates = solver.candidates(list(WORDS))
+        candidates = solver.most_likely_candidates(candidates, args.candidate_number)
 
-    if len(candidates) == 0:
-        print("No candidates found. Please revise your input data.")
-        return
-    print(f"Here are {len(candidates)} possible candidates you can try:")
-    print("\n".join(format_candidates(candidates)))
+        if len(candidates) == 0:
+            print("No candidates found. Please revise your input data.")
+            return
+        print(f"\nHere are {len(candidates)} possible candidates you can try:")
+        print(format_candidates(candidates))
 
 if __name__ == "__main__":
     main()

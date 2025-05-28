@@ -40,11 +40,18 @@ def update_solver_with_feedback(solver: Solver, guess: str, feedback: str) -> No
 
     for i, char in enumerate(guess):
         if feedback[i] == 'g':
-            solver.greens[char] = i
+            solver.greens[i] = char
             if char in solver.yellows:
-                del solver.yellows[char]
+                # Remove this position from yellow positions if present
+                if i in solver.yellows[char]:
+                    solver.yellows[char].remove(i)
+                # If no more yellow positions for this char, remove the char key
+                if not solver.yellows[char]:
+                    del solver.yellows[char]
         elif feedback[i] == 'y':
-            solver.yellows[char] = i
+            if char not in solver.yellows:
+                solver.yellows[char] = set()
+            solver.yellows[char].add(i)
         elif feedback[i] == 'x':
             if char not in solver.greys:
                 solver.greys.append(char)
@@ -53,7 +60,7 @@ def get_user_guess() -> str:
     return input("Guess a word:\t")
 
 def play() -> None:
-    answer = rnd.choice(WORDS)
+    answer = rnd.choice(list(WORDS))
     solver = Solver()
 
     while True:
