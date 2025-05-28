@@ -329,8 +329,9 @@ def main():
         candidates = solver.most_likely_candidates(candidates, args.candidate_number)
 
         if len(candidates) == 0:
-            print("No candidates found. Please revise your input data.")
-            return
+            print("No candidates found. Please revise your input data.\nSolver has been reset.")
+            solver = Solver()
+            continue
         print(f"\nHere are {len(candidates)} possible candidates you can try:")
         print(format_candidates(candidates))
 
