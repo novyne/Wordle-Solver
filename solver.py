@@ -1,4 +1,5 @@
 import argparse
+import os
 
 from typing import Optional, TypeAlias, Literal
 
@@ -13,10 +14,12 @@ if __name__ == "__main__":
 args = parser.parse_args()
 
 
-with open("words.txt", "r") as f:
-    WORDS = set(word for word in f.read().splitlines() if len(word) == args.length)
-with open("wordle-words.txt", "r") as f:
-    WORDS.update(word for word in f.read().splitlines() if len(word) == args.length)
+WORDS = set()
+for file in os.listdir():
+    if file.endswith(".txt"):
+        with open(file, "r") as f:
+            WORDS.update(f.read().splitlines())
+WORDS = list(w.lower() for w in WORDS if w.isalpha())
 
 
 class Solver:
