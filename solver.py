@@ -265,7 +265,7 @@ def receive_word() -> str | Literal[False]:
             print("Please enter a valid word. (Not in word list)")
             continue
         break
-    return word
+    return word.lower()
 
 def receive_word_data() -> str:
     """
@@ -280,7 +280,7 @@ def receive_word_data() -> str:
     
     while True:
         returned_data = input("Enter the colour of each letter (g for green, y for yellow, x for grey): ")
-        if not all(char in ['g', 'y', 'x'] for char in returned_data):
+        if not all(char.lower() in ['g', 'y', 'x'] for char in returned_data):
             print("Please enter valid colours.")
             continue
         if len(returned_data) != args.length:
@@ -288,7 +288,7 @@ def receive_word_data() -> str:
             continue
         break
 
-    return returned_data
+    return returned_data.lower()
 
 def update_solver_from_input(solver: Solver) -> Solver:
     """
@@ -325,7 +325,7 @@ def main():
     while True:
         solver = update_solver_from_input(solver)
 
-        candidates = solver.candidates(list(WORDS))
+        candidates = solver.candidates(WORDS)
         candidates = solver.most_likely_candidates(candidates, args.candidate_number)
 
         if len(candidates) == 0:
