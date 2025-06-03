@@ -332,6 +332,9 @@ def main():
             print("No candidates found. Please revise your input data.\nSolver has been reset.")
             solver = Solver()
             continue
+        elif len(candidates) == 1:
+            print(f"The word is: {candidates[0]}")
+            return
         print(f"\nHere are {len(candidates)} possible candidates you can try:")
         print(format_candidates(candidates))
 
