@@ -10,8 +10,8 @@ Colormap: TypeAlias = dict[str, int]
 # Argument Parser
 parser = argparse.ArgumentParser()
 parser.add_argument("-l", "--length", help="Word length", type=int, default=5)
-if __name__ == "__main__":
-    parser.add_argument("-c", "--candidate-number", help="Number of candidates to return", type=int, default=10)
+# if __name__ == "__main__":
+parser.add_argument("-c", "--candidate-number", help="Number of candidates to return", type=int, default=10)
 args = parser.parse_args()
 
 
@@ -25,172 +25,124 @@ WORDS: list[str] = list(w.lower() for w in wordset if w.isalpha() and len(w) == 
 
 class Solver:
 
-    def __init__(self, greens: Optional[dict[int, str]] = None, yellows: Optional[dict[str, set[int]]] = None, greys: Optional[list[str]] = None, length: int = 5):
+    def __init__(self, greens: Optional[dict[int, str]] = None, yellows: Optional[dict[str, set[int]]] = None, greys: Optional[set[str]] = None, length: int = 5):
         """
         Initializes the Solver with optional color maps and word length.
 
         Args:
             greens (Optional[dict[int, str]], optional): Map of position to green letter. Defaults to None.
             yellows (Optional[dict[str, set[int]]], optional): Map of yellow letters to positions they cannot be in. Defaults to None.
-            greys (Optional[list[str]], optional): List of grey letters. Defaults to None.
+            greys (Optional[set[str]], optional): Set of grey letters. Defaults to None.
             length (int, optional): Word length. Defaults to 5.
         """
 
         self.greens = greens or {}
         self.yellows = yellows or {}
-        self.greys = greys or []
+        self.greys = greys or set()
         self.length = length
 
-    def filter_by_greys(self, words: list[str]) -> list[str]:
+    def filter_candidates(self, words: list[str]) -> list[str]:
         """
-        Returns a list of words that do not contain any grey letters.
+        Returns a list of words that satisfy all constraints: no grey letters,
+        green letters in correct positions, yellow letters present but not in bad positions.
+
         Args:
             words (list[str]): The list of words to filter.
+
         Returns:
             list[str]: The filtered list of words.
         """
-        
-        return [word for word in words if all(char not in self.greys for char in word)]
+        filtered = []
+        for word in words:
+            # Check greys
+            if any(char in self.greys for char in word):
+                continue
+            # Check greens
+            if any(word[pos] != letter for pos, letter in self.greens.items()):
+                continue
+            # Check yellows
+            valid = True
+            for letter, bad_positions in self.yellows.items():
+                if letter not in word:
+                    valid = False
+                    break
+                if any(word[pos] == letter for pos in bad_positions):
+                    valid = False
+                    break
+            if valid:
+                filtered.append(word)
+        return filtered
 
-    def is_legal_by_greens(self, word: str) -> bool:
-        """
-        Checks if a word is legal given the green letters.
-        Args:
-            word (str): The word to check.
-        Returns:
-            bool: True if the word is legal, False otherwise.
-        """
-
-        # Check that all green positions have the correct letter
-        for pos, letter in self.greens.items():
-            if word[pos] != letter:
-                return False
-        return True
-    
-    def filter_by_greens(self, words: list[str]) -> list[str]:
-        """
-        Returns a list of words that are legal given the green letters.
-        Args:
-            words (list[str]): The list of words to filter.
-        Returns:
-            list[str]: The filtered list of words.
-        """
-        
-        return [word for word in words if self.is_legal_by_greens(word)]
-        
-    def is_legal_by_yellows(self, word: str) -> bool:
-        """
-        Checks if a word is legal given the yellow letters.
-        A word is legal if it contains all yellow letters and they are not in the same position as in the yellow map.
-        Args:
-            word (str): The word to check.
-        Returns:
-            bool: True if the word is legal, False otherwise.
-        """
-
-        # Check that all yellow letters are present in the word
-        for letter, bad_positions in self.yellows.items():
-            if word.count(letter) == 0:
-                return False
-            # Check that letter is not in any of the bad positions
-            for pos in bad_positions:
-                if word[pos] == letter:
-                    return False
-        return True
-    
-    def filter_by_yellows(self, words: list[str]) -> list[str]:
-        """
-        Returns a list of words that are legal given the yellow letters.
-        A word is legal if it contains all yellow letters and they are not in the same position as in the yellow map.
-        Args:
-            words (list[str]): The list of words to filter.
-        Returns:
-            list[str]: The filtered list of words.
-        """
-        
-        return [word for word in words if self.is_legal_by_yellows(word)]
-    
     def candidates(self, words: list[str]) -> list[str]:
         """
-        Returns a list of words that are legal given the green and yellow letters.
-        A word is legal if it contains all green letters in the same position as in the green map,
-        contains all yellow letters but not in the same position as in the yellow map,
-        and does not contain any grey letters.
+        Returns a list of words that are legal given the green and yellow letters,
+        and do not contain any grey letters.
+
         Args:
             words (list[str]): The list of words to filter.
+
         Returns:
             list[str]: The filtered list of words.
         """
+        return self.filter_candidates(words)
 
-        candidates = self.filter_by_greys(words)
-        candidates = self.filter_by_greens(candidates)
-        candidates = self.filter_by_yellows(candidates)
-
-        return candidates
-
-    def score_candidate_by_usefulness(self, candidate: str, candidates: list[str]) -> float:
+    def score_candidate_by_usefulness(self, candidate: str, candidates: list[str], letter_counts_cache: dict[str, int], total_letters: int, position_counts_cache: list[dict[str, int]]) -> float:
         """
         Scores a candidate word based on its usefulness.
 
         The score encourages the use of high frequency letters and discourages duplicate letters in the candidate word.
         It also gives a small bonus for letters being in more likely positions based on candidates.
-        
+
         Args:
             candidate (str): The candidate word to score.
             candidates (list[str]): The list of candidate words to use for positional frequency calculation.
-        
+            letter_counts_cache (dict[str, int]): Cached letter frequency counts.
+            total_letters (int): Total number of letters counted.
+            position_counts_cache (list[dict[str, int]]): Cached positional letter frequency counts.
+
         Returns:
             float: The calculated usefulness score for the candidate word.
         """
 
-        # Encourage high frequency letters
-        frequency = 'etaonrishdlfcmugypwbvkjxzq'
-        score = sum(26 - frequency.index(char) for char in candidate)
+        score = 0
+        for char in candidate:
+            freq = letter_counts_cache.get(char, 0) / total_letters if total_letters > 0 else 0
+            score += freq * 100  # scale frequency to 0-100
 
-        # Discourage duplicate letters
-        score += len(set(candidate)) ** 3
+        # Penalize duplicate letters more explicitly
+        unique_letters = set(candidate)
+        duplicate_count = len(candidate) - len(unique_letters)
+        score -= 30 * duplicate_count
 
-        # Add positional letter frequency bonus
-        score += self.positional_letter_bonus(candidate, candidates)
+        # Add positional letter frequency bonus using cached counts
+        score += self.positional_letter_bonus(candidate, position_counts_cache)
 
         return score
 
-    def positional_letter_bonus(self, candidate: str, candidates: list[str], sample_number: int = 100) -> float:
+    def positional_letter_bonus(self, candidate: str, position_counts_cache: list[dict[str, int]]) -> float:
         """
         Calculates a bonus score for a candidate word based on how likely its letters are
-        to appear in their respective positions, referencing the candidates list.
+        to appear in their respective positions, referencing the cached positional counts.
 
         Args:
             candidate (str): The candidate word to score.
-            candidates (list[str]): The list of candidate words to use for positional frequency calculation.
-            sample_number (int): The number of words to sample from candidates to calculate frequencies.
+            position_counts_cache (list[dict[str, int]]): Cached positional letter frequency counts.
 
         Returns:
             float: The positional letter frequency bonus.
         """
-        # Calculate positional frequencies for letters in candidates
-        position_counts = [{} for _ in range(self.length)]
-
-        for word in rnd.choices(candidates, k=sample_number):
-            if len(word) != self.length:
-                continue
-            for i, char in enumerate(word):
-                position_counts[i][char] = position_counts[i].get(char, 0) + 1
-
         bonus = 0.0
         for i, char in enumerate(candidate):
-            if i >= len(position_counts):
-                # Defensive check for candidate length mismatch
+            if i >= len(position_counts_cache):
                 continue
-            char_count = position_counts[i].get(char, 0)
-            # Normalize by total words to get frequency
-            freq = char_count / sample_number
+            char_count = position_counts_cache[i].get(char, 0)
+            total_count = sum(position_counts_cache[i].values())
+            freq = char_count / total_count if total_count > 0 else 0
             bonus += freq
 
-        # Scale bonus to be a small addition
         return bonus * 10
 
-    def most_likely_candidates(self, candidates: list[str], n: int=10) -> list[str]:
+    def most_likely_candidates(self, candidates: list[str], n: int = -1) -> list[str]:
         """
         Returns a list of the most likely candidates to be the word.
 
@@ -200,13 +152,35 @@ class Solver:
 
         Args:
             candidates (list[str]): The list of words to consider.
-            n (int): The number of most likely candidates to return. Defaults to 10.
+            n (int): The number of most likely candidates to return. Defaults to -1, which returns all candidates.
 
         Returns:
             list[str]: A list of the n most likely candidates.
         """
-        
-        return sorted(candidates, key=lambda c: self.score_candidate_by_usefulness(c, candidates), reverse=True)[:n]
+        # Cache letter frequency counts
+        letter_counts = {}
+        total_letters = 0
+        for word in candidates:
+            for char in set(word):
+                letter_counts[char] = letter_counts.get(char, 0) + 1
+                total_letters += 1
+
+        # Cache positional letter frequency counts
+        position_counts = [{} for _ in range(self.length)]
+        for word in candidates:
+            if len(word) != self.length:
+                continue
+            for i, char in enumerate(word):
+                position_counts[i][char] = position_counts[i].get(char, 0) + 1
+
+        # Score candidates using cached counts
+        scored_candidates = [(c, self.score_candidate_by_usefulness(c, candidates, letter_counts, total_letters, position_counts)) for c in candidates]
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+
+        if n == -1:
+            return [c[0] for c in scored_candidates]
+        else:
+            return [c[0] for c in scored_candidates[:n]]
 
     def update(self, guess: str, feedback: str) -> None:
         """
@@ -214,7 +188,7 @@ class Solver:
 
         The green letters are stored in a map of position to letter,
         the yellow letters are stored in a map of letter to sets of positions they cannot be in,
-        and the grey letters are stored in a list.
+        and the grey letters are stored in a set.
         The maps are updated based on the feedback.
         """
 
@@ -222,10 +196,8 @@ class Solver:
             if feedback[i] == 'g':
                 self.greens[i] = char
                 if char in self.yellows:
-                    # Remove this position from yellow positions if present
                     if i in self.yellows[char]:
                         self.yellows[char].remove(i)
-                    # If no more yellow positions for this char, remove the char key
                     if not self.yellows[char]:
                         del self.yellows[char]
             elif feedback[i] == 'y':
@@ -233,8 +205,7 @@ class Solver:
                     self.yellows[char] = set()
                 self.yellows[char].add(i)
             elif feedback[i] == 'x':
-                if char not in self.greys:
-                    self.greys.append(char)
+                self.greys.add(char)
 
 
 def receive_word() -> str | Literal[False]:
