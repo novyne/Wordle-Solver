@@ -69,6 +69,9 @@ if args.wordlist != "all":
 else:
     WORDS = load_words_from_all_files()
 
+if not WORDS:
+    raise Exception("No words found in wordlist or no wordlists found.")
+
 class Solver:
 
     def __init__(self, greens: Optional[dict[int, str]] = None, yellows: Optional[dict[str, set[int]]] = None, greys: Optional[set[str]] = None, length: int = 5):
