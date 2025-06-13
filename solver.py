@@ -11,17 +11,63 @@ Colormap: TypeAlias = dict[str, int]
 parser = argparse.ArgumentParser()
 parser.add_argument("-l", "--length", help="Word length", type=int, default=5)
 # if __name__ == "__main__":
-parser.add_argument("-c", "--candidate-number", help="Number of candidates to return", type=int, default=10)
+parser.add_argument("-c", "--candidate-number", help="Number of candidates to return (-1 for all)", type=int, default=10)
+parser.add_argument("-w", "--wordlist", help="Wordlist to use (none defaults to all in directory)", type=str, default="all")
 args = parser.parse_args()
 
 
-wordset = set()
-for file in os.listdir():
-    if file.endswith(".txt"):
-        with open(file, "r") as f:
-            wordset.update(f.read().splitlines())
-WORDS: list[str] = list(w.lower() for w in wordset if w.isalpha() and len(w) == args.length)
+def load_words_from_file(file: str) -> list[str]:
+    """
+    Loads words from a specified file.
 
+    If the file does not exist in the current directory, it is assumed to be in the same directory as this script.
+    If the file does not have an extension, '.txt' is appended to the end of the name.
+
+    Args:
+        file (str): The filename of the file from which to load words.
+
+    Returns:
+        list[str]: A list of words from the file, all of which are the same length as specified by the command line argument.
+    """
+
+    # Caution where extension is not specified
+    if not file.endswith(".txt") and '.' not in file:
+        file += ".txt"
+
+    if not os.path.exists(file):
+        # Try to find the file in the current directory
+        file = os.path.join(os.getcwd(), file)
+        if not os.path.exists(file):
+            raise FileNotFoundError(f"File {file} does not exist in the current directory.")
+
+    with open(file, "r") as f:
+        wordset = f.read().splitlines()
+        print("Words loaded from", file)
+    
+    return [w.lower() for w in wordset if w.isalpha() and len(w) == args.length]
+
+def load_words_from_all_files() -> list[str]:
+    """
+    Loads all words from all text files in the same directory as the script.
+    
+    Scans the current directory for files with the .txt extension, and loads all words from them, 
+    all of which must be the same length as specified by the command line argument.
+    
+    Returns:
+        list[str]: A list of all words from all text files.
+    """
+
+    wordset = set()
+    for file in os.listdir():
+        if file.endswith(".txt"):
+            wordset.update(load_words_from_file(file))
+    
+    return list(wordset)
+
+if args.wordlist != "all":
+    WORDS = load_words_from_file(args.wordlist)
+else:
+    WORDS = load_words_from_all_files()
 
 class Solver:
 
@@ -52,6 +98,7 @@ class Solver:
         Returns:
             list[str]: The filtered list of words.
         """
+
         filtered = []
         for word in words:
             # Check greys
@@ -86,19 +133,23 @@ class Solver:
         """
         return self.filter_candidates(words)
 
-    def score_candidate_by_usefulness(self, candidate: str, candidates: list[str], letter_counts_cache: dict[str, int], total_letters: int, position_counts_cache: list[dict[str, int]]) -> float:
+    def score_candidate_by_usefulness(self, candidate: str, letter_counts_cache: dict[str, int], total_letters: int, position_counts_cache: list[dict[str, int]], letter_presence_cache: dict[str, int], total_candidates: int) -> float:
         """
         Scores a candidate word based on its usefulness.
 
         The score encourages the use of high frequency letters and discourages duplicate letters in the candidate word.
         It also gives a small bonus for letters being in more likely positions based on candidates.
+        This improved version counts total occurrences of letters (not just unique per word),
+        adds a presence bonus for letters appearing in many candidates,
+        and adjusts duplicate letter penalty to be less harsh.
 
         Args:
             candidate (str): The candidate word to score.
-            candidates (list[str]): The list of candidate words to use for positional frequency calculation.
             letter_counts_cache (dict[str, int]): Cached letter frequency counts.
             total_letters (int): Total number of letters counted.
             position_counts_cache (list[dict[str, int]]): Cached positional letter frequency counts.
+            letter_presence_cache (dict[str, int]): Cached letter presence counts.
+            total_candidates (int): Total number of candidates.
 
         Returns:
             float: The calculated usefulness score for the candidate word.
@@ -107,15 +158,17 @@ class Solver:
         score = 0
         for char in candidate:
             freq = letter_counts_cache.get(char, 0) / total_letters if total_letters > 0 else 0
-            score += freq * 100  # scale frequency to 0-100
+            presence = letter_presence_cache.get(char, 0) / total_candidates if total_candidates > 0 else 0
+            # Weight frequency and presence, frequency weighted higher
+            score += (freq * 80 + presence * 20)
 
-        # Penalize duplicate letters more explicitly
+        # Penalize duplicate letters
         unique_letters = set(candidate)
         duplicate_count = len(candidate) - len(unique_letters)
-        score -= 30 * duplicate_count
+        score -= 100 * duplicate_count ** 3
 
-        # Add positional letter frequency bonus using cached counts
-        score += self.positional_letter_bonus(candidate, position_counts_cache)
+        # Add positional letter frequency bonus using cached counts, weighted more
+        score += self.positional_letter_bonus(candidate, position_counts_cache) * 1.5
 
         return score
 
@@ -157,13 +210,20 @@ class Solver:
         Returns:
             list[str]: A list of the n most likely candidates.
         """
-        # Cache letter frequency counts
+        # Cache letter frequency counts (total occurrences of letters)
         letter_counts = {}
         total_letters = 0
         for word in candidates:
-            for char in set(word):
+            for char in word:
                 letter_counts[char] = letter_counts.get(char, 0) + 1
                 total_letters += 1
+
+        # Cache letter presence counts (number of candidates containing the letter)
+        letter_presence = {}
+        for word in candidates:
+            unique_chars = set(word)
+            for char in unique_chars:
+                letter_presence[char] = letter_presence.get(char, 0) + 1
 
         # Cache positional letter frequency counts
         position_counts = [{} for _ in range(self.length)]
@@ -174,7 +234,7 @@ class Solver:
                 position_counts[i][char] = position_counts[i].get(char, 0) + 1
 
         # Score candidates using cached counts
-        scored_candidates = [(c, self.score_candidate_by_usefulness(c, candidates, letter_counts, total_letters, position_counts)) for c in candidates]
+        scored_candidates = [(c, self.score_candidate_by_usefulness(c, letter_counts, total_letters, position_counts, letter_presence, len(candidates))) for c in candidates]
         scored_candidates.sort(key=lambda x: x[1], reverse=True)
 
         if n == -1:

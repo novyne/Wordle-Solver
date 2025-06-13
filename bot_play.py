@@ -1,8 +1,16 @@
 import random as rnd
+import argparse
+
 from typing import Tuple
 
-from solver import Solver, WORDS
+from solver import Solver, WORDS, args
 from wordle import get_feedback
+
+# Arguments
+# parser = argparse.ArgumentParser()
+# parser.add_argument("-g", "--game-number", help="Number of games to play", type=int, default=100)
+# args = parser.parse_args()
+args.game_number = 100
 
 MAX_GUESSES = 6
 
@@ -25,7 +33,7 @@ def play_single_game(answer: str) -> Tuple[bool, int]:
         candidates = solver.candidates(WORDS)
         if not candidates:
             # No candidates left, fail the game
-            print("No candidates left to guess. Failing the game.")
+            print("No candidates left to guess. Failing the game.\n")
             return False, guesses
 
         # Pick the most likely candidate
@@ -77,7 +85,7 @@ def run_simulation(num_games: int = 1000) -> None:
     print("Guess distribution (number of guesses : count):")
     for guess_count in sorted(guess_distribution.keys()):
         label = f"{guess_count}" if guess_count <= MAX_GUESSES else f">{MAX_GUESSES}"
-        print(f"  {label}: {guess_distribution[guess_count]}")
+        print(f"  {label}".ljust(5) + f": {guess_distribution[guess_count]}")
 
 if __name__ == "__main__":
-    run_simulation(1000)
+    run_simulation(args.game_number)
