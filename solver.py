@@ -138,14 +138,12 @@ class Solver:
 
     def score_candidate_by_usefulness(self, candidate: str, letter_counts_cache: dict[str, int], total_letters: int, position_counts_cache: list[dict[str, int]], letter_presence_cache: dict[str, int], total_candidates: int) -> float:
         """
-        Scores a candidate word based on its usefulness.
+        Scores a candidate word based on its usefulness using static heuristics.
 
-        The score encourages the use of high frequency letters and discourages duplicate letters in the candidate word.
-        It also gives a small bonus for letters being in more likely positions based on candidates.
-        This improved version counts total occurrences of letters (not just unique per word),
-        adds a presence bonus for letters appearing in many candidates,
-        and adjusts duplicate letter penalty to be less harsh.
-
+        The score encourages the use of high frequency letters and letters present in many candidates.
+        It also gives a positional bonus for letters in common positions.
+        Duplicate letters are penalized but less harshly to allow some repetition.
+        The score rewards candidates with more unique letters to maximize information gain.
         Additionally, it rewards candidates that share letters with many other candidates, encouraging elimination of more candidates.
 
         Args:
@@ -160,27 +158,28 @@ class Solver:
             float: The calculated usefulness score for the candidate word.
         """
 
-        score = 0
-        for char in candidate:
+        score = 0.0
+        unique_letters = set(candidate)
+
+        for char in unique_letters:
             freq = letter_counts_cache.get(char, 0) / total_letters if total_letters > 0 else 0
             presence = letter_presence_cache.get(char, 0) / total_candidates if total_candidates > 0 else 0
             # Weight frequency and presence, frequency weighted higher
-            score += (freq * 60 + presence * 40)
+            score += (freq * 70 + presence * 40)
 
-        # Penalize duplicate letters
-        unique_letters = set(candidate)
+        # Penalize duplicate letters less harshly
         duplicate_count = len(candidate) - len(unique_letters)
-        score -= 100 * duplicate_count ** 3
+        score -= 20 * duplicate_count ** 2
 
         # Add positional letter frequency bonus using cached counts, weighted more
-        score += self.positional_letter_bonus(candidate, position_counts_cache) * 1.5
+        score += self.positional_letter_bonus(candidate, position_counts_cache) * 7.5
 
         # Add bonus for sharing letters with many other candidates
         shared_letter_bonus = 0
-        for char in set(candidate):
+        for char in unique_letters:
             shared_letter_bonus += letter_presence_cache.get(char, 0)
         # Normalize and weight the shared letter bonus
-        score += (shared_letter_bonus / total_candidates) * 50
+        score += (shared_letter_bonus / total_candidates) * 100
 
         return score
 

@@ -10,9 +10,9 @@ from wordle import get_feedback
 
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 
-args.game_number = len(WORDS) // 100
+args.game_number = len(WORDS) // 50
 
-MAX_GUESSES = 10
+MAX_GUESSES = 6
 PRINT_LOCK = threading.Lock()
 
 def play_single_game(answer: str) -> Tuple[bool, int]:
@@ -171,8 +171,8 @@ def calculate_performance(wins: int, total_games: int, total_guesses: int, max_g
     # Normalize average guesses to a score between 0 and 1 (lower guesses better)
     guess_score = max(0, (max_guesses + 1 - avg_guesses) / (max_guesses + 1))
 
-    # Weighted performance score: 70% win rate, 30% guess efficiency
-    performance = (0.7 * win_rate + 0.3 * guess_score) * 100
+    # Weighted performance score: 60% win rate, 40% guess efficiency
+    performance = (0.6 * win_rate + 0.4 * guess_score) * 100
     return performance
 
 if __name__ == "__main__":
