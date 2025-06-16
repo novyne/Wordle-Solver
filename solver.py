@@ -146,6 +146,8 @@ class Solver:
         adds a presence bonus for letters appearing in many candidates,
         and adjusts duplicate letter penalty to be less harsh.
 
+        Additionally, it rewards candidates that share letters with many other candidates, encouraging elimination of more candidates.
+
         Args:
             candidate (str): The candidate word to score.
             letter_counts_cache (dict[str, int]): Cached letter frequency counts.
@@ -163,7 +165,7 @@ class Solver:
             freq = letter_counts_cache.get(char, 0) / total_letters if total_letters > 0 else 0
             presence = letter_presence_cache.get(char, 0) / total_candidates if total_candidates > 0 else 0
             # Weight frequency and presence, frequency weighted higher
-            score += (freq * 80 + presence * 20)
+            score += (freq * 60 + presence * 40)
 
         # Penalize duplicate letters
         unique_letters = set(candidate)
@@ -172,6 +174,13 @@ class Solver:
 
         # Add positional letter frequency bonus using cached counts, weighted more
         score += self.positional_letter_bonus(candidate, position_counts_cache) * 1.5
+
+        # Add bonus for sharing letters with many other candidates
+        shared_letter_bonus = 0
+        for char in set(candidate):
+            shared_letter_bonus += letter_presence_cache.get(char, 0)
+        # Normalize and weight the shared letter bonus
+        score += (shared_letter_bonus / total_candidates) * 50
 
         return score
 
