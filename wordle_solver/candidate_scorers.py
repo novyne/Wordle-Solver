@@ -1,3 +1,6 @@
+from wordle_solver.wordle import get_feedback
+from wordle_solver.filter import Filter
+
 class DummyScorer:
 
     def __init__(self, ranker):
@@ -17,6 +20,9 @@ class DefaultScorer:
 
     def __init__(self, ranker):
         self.ranker = ranker
+
+    def __getattr__(self, name):
+        return getattr(self.ranker, name)
 
     def score(self, candidate: str) -> float:
         """
@@ -62,8 +68,8 @@ class DefaultScorer:
         unique_letters = set(candidate)
 
         for char in unique_letters:
-            freq = self.ranker._letter_counts.get(char, 0) / self.ranker._total_letters if self.ranker._total_letters > 0 else 0
-            presence = self.ranker._letter_presence.get(char, 0) / self.ranker._total_candidates if self.ranker._total_candidates > 0 else 0
+            freq = self._letter_counts.get(char, 0) / self._total_letters if self._total_letters > 0 else 0
+            presence = self._letter_presence.get(char, 0) / self._total_candidates if self._total_candidates > 0 else 0
             # Weight frequency and presence, frequency weighted higher
             score += (freq * 70 + presence * 40)
 
@@ -72,17 +78,16 @@ class DefaultScorer:
         score -= 20 * duplicate_count ** 2
 
         # Add positional letter frequency bonus using cached counts, weighted more
-        score += positional_letter_bonus(candidate, self.ranker._position_counts) * 7.5
+        score += positional_letter_bonus(candidate, self._position_counts) * 7.5
 
         # Add bonus for sharing letters with many other candidates
         shared_letter_bonus = 0
         for char in unique_letters:
-            shared_letter_bonus += self.ranker._letter_presence.get(char, 0)
+            shared_letter_bonus += self._letter_presence.get(char, 0)
         # Normalize and weight the shared letter bonus
-        score += (shared_letter_bonus / self.ranker._total_candidates) * 100
+        score += (shared_letter_bonus / self._total_candidates) * 100
 
         return score
-    
 
 class ReductionScorer:
 
@@ -91,5 +96,38 @@ class ReductionScorer:
     def __init__(self, ranker):
         self.ranker = ranker
     
+    def __getattr__(self, name):
+        return getattr(self.ranker, name)
+    
     def score(self, candidate: str) -> float:
-        return 0.0
+        total_remaining = 0
+        candidates = self.ranker.candidates
+        num_candidates = len(candidates)
+        if num_candidates == 0:
+            return 0.0
+
+        for answer in candidates:
+            feedback = get_feedback(candidate, answer)
+            filter = Filter(length=len(candidate))
+            filter.update(candidate, feedback)
+            filtered_candidates = filter.candidates(candidates)
+            total_remaining += len(filtered_candidates)
+
+        average_remaining = total_remaining / num_candidates
+        # Return negative average remaining to rank candidates that reduce more higher
+        return -average_remaining
+
+class HybridScorer:
+
+    def __init__(self, ranker):
+        self.ranker = ranker
+
+    def __getattr__(self, name):
+        return getattr(self.ranker, name)
+    
+    def score(self, candidate: str) -> float:
+        
+        if len(self.candidates) < 20:
+            return ReductionScorer(self.ranker).score(candidate)
+
+        return DefaultScorer(self.ranker).score(candidate)

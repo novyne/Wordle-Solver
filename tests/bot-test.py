@@ -1,19 +1,23 @@
 import random as rnd
-import argparse
+import threading
+import sys
+
 from typing import Tuple, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
-import threading
-
-from solver import Solver, Filter, WORDS, args
-from wordle import get_feedback
-
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 
-args.game_number = len(WORDS) // 50
+from wordle_solver import candidate_scorers as cs
+from wordle_solver.solver import CandidateRanker, Filter, WORDS, args
+from wordle_solver.wordle import get_feedback
+
+
+args.game_number = 100
 
 MAX_GUESSES = 6
 PRINT_LOCK = threading.Lock()
+
+SCORER = cs.DefaultScorer
 
 def play_single_game(answer: str) -> Tuple[bool, int]:
     """
@@ -25,14 +29,14 @@ def play_single_game(answer: str) -> Tuple[bool, int]:
     Returns:
         Tuple[bool, int]: (success, number_of_guesses)
     """
-    solver = Solver()
+
     filter = Filter()
     guesses = 0
 
     # with PRINT_LOCK:
     #     print(f"Answer: {answer}")
 
-    while guesses < MAX_GUESSES:
+    while True:
         candidates = filter.candidates(WORDS)
         if not candidates:
             # No candidates left, fail the game
@@ -41,7 +45,7 @@ def play_single_game(answer: str) -> Tuple[bool, int]:
             return False, guesses
 
         # Pick the most likely candidate
-        guess = solver.most_likely_candidates(candidates, 1)[0]
+        guess = CandidateRanker(candidates, scorer=SCORER).most_likely_candidates(1)[0]
         guesses += 1
 
         # with PRINT_LOCK:
@@ -58,9 +62,11 @@ def play_single_game(answer: str) -> Tuple[bool, int]:
 
         filter.update(guess, feedback)
 
-    # with PRINT_LOCK:
-    #     print(f"Failed to guess {answer} within {MAX_GUESSES} guesses.\n")
-    return False, guesses
+        # Stop if guesses exceed a reasonable upper limit to avoid infinite loops
+        if guesses > MAX_GUESSES * 2:
+            # with PRINT_LOCK:
+            #     print(f"Exceeded maximum allowed guesses. Failing the game.\n")
+            return False, guesses
 
 def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
     """
@@ -76,6 +82,7 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
     total_guesses = 0
     wins = 0
     guess_distribution = defaultdict(int)
+    example_words = {}
 
     answers = rnd.choices(WORDS, k=min(num_games, len(WORDS)))
 
@@ -91,10 +98,10 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
             task = progress.add_task(f"Running {num_games} games...", total=num_games)
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_game = {executor.submit(play_single_game, answer): idx+1 for idx, answer in enumerate(answers)}
+                future_to_game = {executor.submit(play_single_game, answer): (idx+1, answer) for idx, answer in enumerate(answers)}
 
                 for future in as_completed(future_to_game):
-                    game_num = future_to_game[future]
+                    game_num, answer = future_to_game[future]
                     progress.advance(task)
                     # with PRINT_LOCK:
                     #     print(f"Game {game_num}/{args.game_number} completed.")
@@ -105,18 +112,18 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
                             print(f"Game {game_num} generated an exception: {exc}")
                         success, guesses = False, MAX_GUESSES + 1
 
-                    if success:
+                    guess_distribution[guesses] += 1
+                    if guesses not in example_words:
+                        example_words[guesses] = answer
+                    total_guesses += guesses
+                    if success and guesses <= MAX_GUESSES:
                         wins += 1
-                        total_guesses += guesses
-                        guess_distribution[guesses] += 1
-                    else:
-                        guess_distribution[MAX_GUESSES + 1] += 1
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_game = {executor.submit(play_single_game, answer): idx+1 for idx, answer in enumerate(answers)}
+            future_to_game = {executor.submit(play_single_game, answer): (idx+1, answer) for idx, answer in enumerate(answers)}
 
             for future in as_completed(future_to_game):
-                game_num = future_to_game[future]
+                game_num, answer = future_to_game[future]
                 with PRINT_LOCK:
                     print(f"Game {game_num}/{args.game_number} completed.")
                 try:
@@ -126,23 +133,34 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
                         print(f"Game {game_num} generated an exception: {exc}")
                     success, guesses = False, MAX_GUESSES + 1
 
-                if success:
+                guess_distribution[guesses] += 1
+                if guesses not in example_words:
+                    example_words[guesses] = answer
+                total_guesses += guesses
+                if success and guesses <= MAX_GUESSES:
                     wins += 1
-                    total_guesses += guesses
-                    guess_distribution[guesses] += 1
-                else:
-                    guess_distribution[MAX_GUESSES + 1] += 1
 
     with PRINT_LOCK:
         print(f"Games played: {num_games}")
         print(f"Games won: {wins}")
         print(f"Win rate: {wins / num_games * 100:.2f}%")
-        if wins > 0:
-            print(f"Average guesses (wins only): {total_guesses / wins:.2f}")
+        print(f"Average guesses: {total_guesses / num_games:.2f}")
+
         print("Guess distribution (number of guesses : count):")
-        for guess_count in sorted(guess_distribution.keys()):
-            label = f"{guess_count}" if guess_count <= MAX_GUESSES else f">{MAX_GUESSES}"
-            print(f"  {label}".ljust(5) + f": {guess_distribution[guess_count]}")
+        max_guess = max(guess_distribution.keys()) if guess_distribution else 0
+        for guess_count in range(1, max_guess + 1):
+            count = guess_distribution.get(guess_count, 0)
+            if count > 0:
+                example_word = example_words.get(guess_count, "")
+                if example_word:
+                    example_word_str = f" ({example_word})"
+                else:
+                    example_word_str = ""
+                if guess_count <= MAX_GUESSES:
+                    print(f"  {guess_count}".ljust(5) + f": {count}{example_word_str}")
+                else:
+                    print("\033[91m" + f"  {guess_count}".ljust(5) + f": {count}{example_word_str}\033[0m")
+        print("\033[0m")
 
     performance = calculate_performance(wins, num_games, total_guesses, MAX_GUESSES)
     return performance

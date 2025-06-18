@@ -1,4 +1,6 @@
-from solver import CandidateRanker, Filter, WORDS, args, format_candidates
+from config import WORDS, args, format_candidates
+from solver import CandidateRanker
+from filter import Filter
 
 import candidate_scorers as cs
 

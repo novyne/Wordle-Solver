@@ -1,6 +1,7 @@
 import random as rnd
 
-from solver import Filter, WORDS, args
+from wordle_solver.filter import Filter
+from config import WORDS, args
 
 def get_feedback(guess: str, answer: str) -> str:
     """
