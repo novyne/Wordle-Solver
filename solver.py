@@ -3,7 +3,10 @@ import candidate_scorers as cs
 import os
 import random as rnd
 
-from typing import Optional, TypeAlias, Literal
+from typing import Optional, TypeAlias, Literal, Union
+
+
+import candidate_scorers as cs
 
 Colormap: TypeAlias = dict[str, int]
 
@@ -163,16 +166,19 @@ class Filter:
             elif feedback[i] == 'x':
                 self.greys.add(char)
 
-class Solver:
 
-    def __init__(self, scorer=None):
+class CandidateRanker:
+
+    def __init__(self, candidates: list[str], scorer=None):
         """
-        Initializes the Solver with a scoring function.
+        Initializes the CandidateRanker with a scoring function.
 
         Args:
             scorer (callable, optional): A scoring function to score candidates. Defaults to None.
+            candidates (list[str]): The list of candidates to rank.
         """
-        self.scorer = scorer or self.default_scorer
+        self.scorer = scorer or cs.DefaultScorer
+        self.candidates = candidates
 
         # Initialize caches for scoring
         self._letter_counts = {}
@@ -181,30 +187,32 @@ class Solver:
         self._letter_presence = {}
         self._total_candidates = 0
 
-    def _calculate_caches(self, candidates: list[str]) -> None:
+        self._calculate_caches()
+
+        scorer_instance = self.scorer(self)
+        self.scorer = scorer_instance
+
+    def _calculate_caches(self) -> None:
         """
         Calculate and store caches used for scoring candidates.
-
-        Args:
-            candidates (list[str]): The list of candidate words.
         """
         letter_counts = {}
         total_letters = 0
         length = 0
-        for word in candidates:
+        for word in self.candidates:
             length = len(word)
             for char in word:
                 letter_counts[char] = letter_counts.get(char, 0) + 1
                 total_letters += 1
 
         letter_presence = {}
-        for word in candidates:
+        for word in self.candidates:
             unique_chars = set(word)
             for char in unique_chars:
                 letter_presence[char] = letter_presence.get(char, 0) + 1
 
         position_counts = [{} for _ in range(length)]
-        for word in candidates:
+        for word in self.candidates:
             if len(word) != length:
                 continue
             for i, char in enumerate(word):
@@ -214,74 +222,9 @@ class Solver:
         self._total_letters = total_letters
         self._position_counts = position_counts
         self._letter_presence = letter_presence
-        self._total_candidates = len(candidates)
+        self._total_candidates = len(self.candidates)
 
-    def default_scorer(self, candidate: str) -> float:
-        """
-        Default scoring function for a candidate word based on its usefulness using static heuristics.
-
-        The score encourages the use of high frequency letters and letters present in many candidates.
-        It also gives a positional bonus for letters in common positions.
-        Duplicate letters are penalized but less harshly to allow some repetition.
-        The score rewards candidates with more unique letters to maximize information gain.
-        Additionally, it rewards candidates that share letters with many other candidates, encouraging elimination of more candidates.
-
-        Args:
-            candidate (str): The candidate word to score.
-
-        Returns:
-            float: The calculated usefulness score for the candidate word.
-        """
-
-        score = 0.0
-        unique_letters = set(candidate)
-
-        for char in unique_letters:
-            freq = self._letter_counts.get(char, 0) / self._total_letters if self._total_letters > 0 else 0
-            presence = self._letter_presence.get(char, 0) / self._total_candidates if self._total_candidates > 0 else 0
-            # Weight frequency and presence, frequency weighted higher
-            score += (freq * 70 + presence * 40)
-
-        # Penalize duplicate letters less harshly
-        duplicate_count = len(candidate) - len(unique_letters)
-        score -= 20 * duplicate_count ** 2
-
-        # Add positional letter frequency bonus using cached counts, weighted more
-        score += self.positional_letter_bonus(candidate, self._position_counts) * 7.5
-
-        # Add bonus for sharing letters with many other candidates
-        shared_letter_bonus = 0
-        for char in unique_letters:
-            shared_letter_bonus += self._letter_presence.get(char, 0)
-        # Normalize and weight the shared letter bonus
-        score += (shared_letter_bonus / self._total_candidates) * 100
-
-        return score
-
-    def positional_letter_bonus(self, candidate: str, position_counts_cache: list[dict[str, int]]) -> float:
-        """
-        Calculates a bonus score for a candidate word based on how likely its letters are
-        to appear in their respective positions, referencing the cached positional counts.
-
-        Args:
-            candidate (str): The candidate word to score.
-            position_counts_cache (list[dict[str, int]]): Cached positional letter frequency counts.
-
-        Returns:
-            float: The positional letter frequency bonus.
-        """
-        bonus = 0.0
-        for i, char in enumerate(candidate):
-            if i >= len(position_counts_cache):
-                continue
-            char_count = position_counts_cache[i].get(char, 0)
-            total_count = sum(position_counts_cache[i].values())
-            freq = char_count / total_count if total_count > 0 else 0
-            bonus += freq
-
-        return bonus * 10
-
-    def most_likely_candidates(self, candidates: list[str], n: int = -1) -> list[str]:
+    def most_likely_candidates(self, n: int = -1) -> list[str]:
         """
         Returns a list of the most likely candidates to be the word.
 
@@ -295,9 +238,9 @@ class Solver:
         Returns:
             list[str]: A list of the n most likely candidates.
         """
-        self._calculate_caches(candidates)
+        self._calculate_caches()
 
-        scored_candidates = [(c, self.scorer(c)) for c in candidates]
+        scored_candidates = [(c, self.scorer.score(c)) for c in self.candidates] # type: ignore
         scored_candidates.sort(key=lambda x: x[1], reverse=True)
 
         if n == -1:
@@ -306,7 +249,8 @@ class Solver:
             return [c[0] for c in scored_candidates[:n]]
 
 
-def receive_word() -> str | Literal[False]:
+
+def receive_word() -> Union[str, Literal[False]]:
     """
     Prompts the user to enter a word and returns it if valid.
 
@@ -390,17 +334,20 @@ def format_candidates(candidates: list[str]) -> str:
 def main():
 
     filter = Filter()
-    solver = Solver()
+    
+    scorer = cs.DefaultScorer
 
     while True:
         filter = update_filter_from_input(filter)
 
         candidates = filter.candidates(WORDS)
-        candidates = solver.most_likely_candidates(candidates, args.candidate_number)
+        candidate_ranker = CandidateRanker(candidates, scorer)
+
+        candidates = candidate_ranker.most_likely_candidates(args.candidate_number)
 
         if len(candidates) == 0:
             print("No candidates found. Please revise your input data.\nSolver has been reset.")
-            solver = Solver()
+            filter = Filter()
             continue
         elif len(candidates) == 1:
             print(f"The word is: {candidates[0]}")

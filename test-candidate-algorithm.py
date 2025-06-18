@@ -1,8 +1,12 @@
-from solver import Solver, Filter, WORDS, args, format_candidates
+from solver import CandidateRanker, Filter, WORDS, args, format_candidates
+
+import candidate_scorers as cs
+
+scorer = cs.ReductionScorer
 
 filter = Filter(length=args.length)
-solver = Solver()
-candidates = solver.most_likely_candidates(WORDS)
+scorer = CandidateRanker(WORDS, scorer=scorer)
+candidates = scorer.most_likely_candidates()
 
 print(f"Top {args.candidate_number} candidates:")
 print(format_candidates(candidates[:args.candidate_number]))

@@ -1,6 +1,6 @@
 import random as rnd
 
-from solver import Solver, WORDS
+from solver import Filter, WORDS, args
 
 def get_feedback(guess: str, answer: str) -> str:
     """
@@ -24,11 +24,11 @@ def get_feedback(guess: str, answer: str) -> str:
 
     return ''.join(feedback)
 
-def validate_guess(guess: str, solver: Solver) -> bool:
+def validate_guess(guess: str, filter: Filter) -> bool:
     if not guess.isalpha():
         print("Please enter a valid word.")
         return False
-    if len(guess) != solver.length:
+    if len(guess) != filter.length:
         print("Please enter a word of the correct length.")
         return False
     if guess not in WORDS:
@@ -36,38 +36,38 @@ def validate_guess(guess: str, solver: Solver) -> bool:
         return False
     return True
 
-def update_solver_with_feedback(solver: Solver, guess: str, feedback: str) -> None:
+def update_filter_with_feedback(filter: Filter, guess: str, feedback: str) -> None:
 
     for i, char in enumerate(guess):
         if feedback[i] == 'g':
-            solver.greens[i] = char
-            if char in solver.yellows:
+            filter.greens[i] = char
+            if char in filter.yellows:
                 # Remove this position from yellow positions if present
-                if i in solver.yellows[char]:
-                    solver.yellows[char].remove(i)
+                if i in filter.yellows[char]:
+                    filter.yellows[char].remove(i)
                 # If no more yellow positions for this char, remove the char key
-                if not solver.yellows[char]:
-                    del solver.yellows[char]
+                if not filter.yellows[char]:
+                    del filter.yellows[char]
         elif feedback[i] == 'y':
-            if char not in solver.yellows:
-                solver.yellows[char] = set()
-            solver.yellows[char].add(i)
-        elif feedback[i] == 'x':
-            if char not in solver.greys:
-                solver.greys.append(char)
+            if char not in filter.yellows:
+                filter.yellows[char] = set()
+                filter.yellows[char].add(i)
+            elif feedback[i] == 'x':
+                if char not in filter.greys:
+                    filter.greys.add(char)
 
 def get_user_guess() -> str:
     return input("Guess a word:\t")
 
 def play() -> None:
     answer = rnd.choice(list(WORDS))
-    solver = Solver()
+    filter = Filter(length=args.length)
 
     while True:
         guess = get_user_guess()
         if guess == "exit":
             return
-        if not validate_guess(guess, solver):
+        if not validate_guess(guess, filter):
             continue
 
         if guess == answer:
@@ -77,7 +77,7 @@ def play() -> None:
         feedback = get_feedback(guess, answer)
         print("Feedback:\t" + feedback)
 
-        update_solver_with_feedback(solver, guess, feedback)
+        update_filter_with_feedback(filter, guess, feedback)
 
 def main():
     play()
