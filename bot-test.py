@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 import threading
 
-from solver import Solver, WORDS, args
+from solver import Solver, Filter, WORDS, args
 from wordle import get_feedback
 
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
@@ -26,13 +26,14 @@ def play_single_game(answer: str) -> Tuple[bool, int]:
         Tuple[bool, int]: (success, number_of_guesses)
     """
     solver = Solver()
+    filter = Filter()
     guesses = 0
 
     # with PRINT_LOCK:
     #     print(f"Answer: {answer}")
 
     while guesses < MAX_GUESSES:
-        candidates = solver.candidates(WORDS)
+        candidates = filter.candidates(WORDS)
         if not candidates:
             # No candidates left, fail the game
             # with PRINT_LOCK:
@@ -55,7 +56,7 @@ def play_single_game(answer: str) -> Tuple[bool, int]:
         # with PRINT_LOCK:
         #     print(feedback)
 
-        solver.update(guess, feedback)
+        filter.update(guess, feedback)
 
     # with PRINT_LOCK:
     #     print(f"Failed to guess {answer} within {MAX_GUESSES} guesses.\n")

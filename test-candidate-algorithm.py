@@ -1,6 +1,7 @@
-from solver import Solver, WORDS, args, format_candidates
+from solver import Solver, Filter, WORDS, args, format_candidates
 
-solver = Solver(length=args.length)
+filter = Filter(length=args.length)
+solver = Solver()
 candidates = solver.most_likely_candidates(WORDS)
 
 print(f"Top {args.candidate_number} candidates:")

@@ -1,4 +1,5 @@
 import argparse
+import candidate_scorers as cs
 import os
 import random as rnd
 
@@ -72,11 +73,12 @@ else:
 if not WORDS:
     raise Exception("No words found in wordlist or no wordlists found.")
 
-class Solver:
+
+class Filter:
 
     def __init__(self, greens: Optional[dict[int, str]] = None, yellows: Optional[dict[str, set[int]]] = None, greys: Optional[set[str]] = None, length: int = 5):
         """
-        Initializes the Solver with optional color maps and word length.
+        Initializes the Filter with optional color maps and word length.
 
         Args:
             greens (Optional[dict[int, str]], optional): Map of position to green letter. Defaults to None.
@@ -136,9 +138,87 @@ class Solver:
         """
         return self.filter_candidates(words)
 
-    def score_candidate_by_usefulness(self, candidate: str, letter_counts_cache: dict[str, int], total_letters: int, position_counts_cache: list[dict[str, int]], letter_presence_cache: dict[str, int], total_candidates: int) -> float:
+    def update(self, guess: str, feedback: str) -> None:
         """
-        Scores a candidate word based on its usefulness using static heuristics.
+        Updates the Filter with a guess and its corresponding feedback.
+
+        The green letters are stored in a map of position to letter,
+        the yellow letters are stored in a map of letter to sets of positions they cannot be in,
+        and the grey letters are stored in a set.
+        The maps are updated based on the feedback.
+        """
+
+        for i, char in enumerate(guess):
+            if feedback[i] == 'g':
+                self.greens[i] = char
+                if char in self.yellows:
+                    if i in self.yellows[char]:
+                        self.yellows[char].remove(i)
+                    if not self.yellows[char]:
+                        del self.yellows[char]
+            elif feedback[i] == 'y':
+                if char not in self.yellows:
+                    self.yellows[char] = set()
+                self.yellows[char].add(i)
+            elif feedback[i] == 'x':
+                self.greys.add(char)
+
+class Solver:
+
+    def __init__(self, scorer=None):
+        """
+        Initializes the Solver with a scoring function.
+
+        Args:
+            scorer (callable, optional): A scoring function to score candidates. Defaults to None.
+        """
+        self.scorer = scorer or self.default_scorer
+
+        # Initialize caches for scoring
+        self._letter_counts = {}
+        self._total_letters = 0
+        self._position_counts = []
+        self._letter_presence = {}
+        self._total_candidates = 0
+
+    def _calculate_caches(self, candidates: list[str]) -> None:
+        """
+        Calculate and store caches used for scoring candidates.
+
+        Args:
+            candidates (list[str]): The list of candidate words.
+        """
+        letter_counts = {}
+        total_letters = 0
+        length = 0
+        for word in candidates:
+            length = len(word)
+            for char in word:
+                letter_counts[char] = letter_counts.get(char, 0) + 1
+                total_letters += 1
+
+        letter_presence = {}
+        for word in candidates:
+            unique_chars = set(word)
+            for char in unique_chars:
+                letter_presence[char] = letter_presence.get(char, 0) + 1
+
+        position_counts = [{} for _ in range(length)]
+        for word in candidates:
+            if len(word) != length:
+                continue
+            for i, char in enumerate(word):
+                position_counts[i][char] = position_counts[i].get(char, 0) + 1
+
+        self._letter_counts = letter_counts
+        self._total_letters = total_letters
+        self._position_counts = position_counts
+        self._letter_presence = letter_presence
+        self._total_candidates = len(candidates)
+
+    def default_scorer(self, candidate: str) -> float:
+        """
+        Default scoring function for a candidate word based on its usefulness using static heuristics.
 
         The score encourages the use of high frequency letters and letters present in many candidates.
         It also gives a positional bonus for letters in common positions.
@@ -148,11 +228,6 @@ class Solver:
 
         Args:
             candidate (str): The candidate word to score.
-            letter_counts_cache (dict[str, int]): Cached letter frequency counts.
-            total_letters (int): Total number of letters counted.
-            position_counts_cache (list[dict[str, int]]): Cached positional letter frequency counts.
-            letter_presence_cache (dict[str, int]): Cached letter presence counts.
-            total_candidates (int): Total number of candidates.
 
         Returns:
             float: The calculated usefulness score for the candidate word.
@@ -162,8 +237,8 @@ class Solver:
         unique_letters = set(candidate)
 
         for char in unique_letters:
-            freq = letter_counts_cache.get(char, 0) / total_letters if total_letters > 0 else 0
-            presence = letter_presence_cache.get(char, 0) / total_candidates if total_candidates > 0 else 0
+            freq = self._letter_counts.get(char, 0) / self._total_letters if self._total_letters > 0 else 0
+            presence = self._letter_presence.get(char, 0) / self._total_candidates if self._total_candidates > 0 else 0
             # Weight frequency and presence, frequency weighted higher
             score += (freq * 70 + presence * 40)
 
@@ -172,14 +247,14 @@ class Solver:
         score -= 20 * duplicate_count ** 2
 
         # Add positional letter frequency bonus using cached counts, weighted more
-        score += self.positional_letter_bonus(candidate, position_counts_cache) * 7.5
+        score += self.positional_letter_bonus(candidate, self._position_counts) * 7.5
 
         # Add bonus for sharing letters with many other candidates
         shared_letter_bonus = 0
         for char in unique_letters:
-            shared_letter_bonus += letter_presence_cache.get(char, 0)
+            shared_letter_bonus += self._letter_presence.get(char, 0)
         # Normalize and weight the shared letter bonus
-        score += (shared_letter_bonus / total_candidates) * 100
+        score += (shared_letter_bonus / self._total_candidates) * 100
 
         return score
 
@@ -210,8 +285,7 @@ class Solver:
         """
         Returns a list of the most likely candidates to be the word.
 
-        The most likely candidates are determined by scoring each candidate word based on its usefulness.
-        The score takes into account the frequency of letters in the word and discourages duplicate letters.
+        The most likely candidates are determined by scoring each candidate word using the scorer function.
         The candidates are then sorted by their score in descending order.
 
         Args:
@@ -221,62 +295,15 @@ class Solver:
         Returns:
             list[str]: A list of the n most likely candidates.
         """
-        # Cache letter frequency counts (total occurrences of letters)
-        letter_counts = {}
-        total_letters = 0
-        for word in candidates:
-            for char in word:
-                letter_counts[char] = letter_counts.get(char, 0) + 1
-                total_letters += 1
+        self._calculate_caches(candidates)
 
-        # Cache letter presence counts (number of candidates containing the letter)
-        letter_presence = {}
-        for word in candidates:
-            unique_chars = set(word)
-            for char in unique_chars:
-                letter_presence[char] = letter_presence.get(char, 0) + 1
-
-        # Cache positional letter frequency counts
-        position_counts = [{} for _ in range(self.length)]
-        for word in candidates:
-            if len(word) != self.length:
-                continue
-            for i, char in enumerate(word):
-                position_counts[i][char] = position_counts[i].get(char, 0) + 1
-
-        # Score candidates using cached counts
-        scored_candidates = [(c, self.score_candidate_by_usefulness(c, letter_counts, total_letters, position_counts, letter_presence, len(candidates))) for c in candidates]
+        scored_candidates = [(c, self.scorer(c)) for c in candidates]
         scored_candidates.sort(key=lambda x: x[1], reverse=True)
 
         if n == -1:
             return [c[0] for c in scored_candidates]
         else:
             return [c[0] for c in scored_candidates[:n]]
-
-    def update(self, guess: str, feedback: str) -> None:
-        """
-        Updates the Solver with a guess and its corresponding feedback.
-
-        The green letters are stored in a map of position to letter,
-        the yellow letters are stored in a map of letter to sets of positions they cannot be in,
-        and the grey letters are stored in a set.
-        The maps are updated based on the feedback.
-        """
-
-        for i, char in enumerate(guess):
-            if feedback[i] == 'g':
-                self.greens[i] = char
-                if char in self.yellows:
-                    if i in self.yellows[char]:
-                        self.yellows[char].remove(i)
-                    if not self.yellows[char]:
-                        del self.yellows[char]
-            elif feedback[i] == 'y':
-                if char not in self.yellows:
-                    self.yellows[char] = set()
-                self.yellows[char].add(i)
-            elif feedback[i] == 'x':
-                self.greys.add(char)
 
 
 def receive_word() -> str | Literal[False]:
@@ -332,29 +359,29 @@ def receive_word_data() -> str:
 
     return returned_data.lower()
 
-def update_solver_from_input(solver: Solver) -> Solver:
+def update_filter_from_input(filter: Filter) -> Filter:
     """
-    Continually prompts the user to enter a word and its corresponding colour data and updates the solver.
+    Continually prompts the user to enter a word and its corresponding colour data and updates the filter.
 
     Continually prompts the user to enter a word and its corresponding colour data until the user enters "DONE".
-    The data is validated and used to update the solver.
+    The data is validated and used to update the filter.
 
     Args:
-        solver (Solver): The solver to be updated.
+        filter (Filter): The filter to be updated.
 
     Returns:
-        Solver: The updated solver.
+        Filter: The updated filter.
     """
 
     while True:
 
         word = receive_word()
         if word is False:
-            return solver
+            return filter
         
         returned_data = receive_word_data()
 
-        solver.update(word, returned_data)
+        filter.update(word, returned_data)
 
 def format_candidates(candidates: list[str]) -> str:
     return "".join(word.ljust(10 + args.length) for word in candidates)
@@ -362,12 +389,13 @@ def format_candidates(candidates: list[str]) -> str:
 
 def main():
 
+    filter = Filter()
     solver = Solver()
 
     while True:
-        solver = update_solver_from_input(solver)
+        filter = update_filter_from_input(filter)
 
-        candidates = solver.candidates(WORDS)
+        candidates = filter.candidates(WORDS)
         candidates = solver.most_likely_candidates(candidates, args.candidate_number)
 
         if len(candidates) == 0:
