@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 
-from config import WORDS, args
+from utils import WORDS, args
 
 from wordle_solver import candidate_scorers as cs
 from wordle_solver.solver import CandidateRanker, Filter
@@ -42,13 +42,13 @@ def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) ->
             if display_guesses:
                 print("OUT OF CANDIDATES!")
             with PRINT_LOCK:
-                print(f"Game ran out of candidates {answer=}")
+                print(f"Game ran out of candidates ({answer=})")
             return False, guesses
 
         # Pick the most likely candidate
         guess = CandidateRanker(candidates, scorer=scorer).most_likely_candidates(1)[0]
         if display_guesses:
-            print(f"Guess {guesses+1}: {guess}")
+            print(f"Guess {guesses+1} from {len(candidates)} cands:".ljust(30) + guess)
         guesses += 1
 
         if guess == answer:

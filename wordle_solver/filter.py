@@ -1,4 +1,11 @@
 from typing import Optional
+from wordle_solver import candidate_scorers as cs
+from wordle_solver.candidate_ranker import CandidateRanker
+
+# Constant to select the candidate scorer class to use for ranking impossible candidates
+# Use string name to avoid circular import
+CANDIDATE_SCORER_CLASS = cs.HybridScorer
+IMPOSSIBLE_PROPORTION_KEPT = 0.2
 
 class Filter:
 
@@ -23,7 +30,7 @@ class Filter:
         # Track maximum counts of letters based on feedback
         self.max_counts = {}
 
-    def filter_candidates(self, words: list[str]) -> list[str]:
+    def candidates(self, words: list[str]) -> list[str]:
         """
         Returns a list of words that satisfy all constraints: no grey letters,
         green letters in correct positions, yellow letters present but not in bad positions,
@@ -37,13 +44,50 @@ class Filter:
         """
 
         filtered = []
+        impossible_candidates = []
+
+        filtered = self.strict_candidates(words)
+        impossible_candidates = [word for word in words if word not in filtered]
+
+        # Use CandidateRanker from solver.py for scoring
+        ranker = CandidateRanker(words, scorer=CANDIDATE_SCORER_CLASS)
+
+        # Score impossible candidates
+        scored_impossible = [(word, ranker.scorer.score(word)) for word in impossible_candidates]
+        scored_impossible.sort(key=lambda x: x[1], reverse=True)
+
+        num_to_keep = max(1, int(len(impossible_candidates) * IMPOSSIBLE_PROPORTION_KEPT))
+
+        kept_impossible = [word for word, score in scored_impossible[:num_to_keep]]
+
+        combined = filtered + kept_impossible
+
+        return sorted(combined)
+
+    def strict_candidates(self, words: list[str]) -> list[str]:
+        """
+        Returns a list of words that satisfy all constraints strictly: no grey letters allowed,
+        green letters in correct positions, yellow letters present but not in bad positions,
+        and letter counts satisfy min and max constraints.
+        This method does not keep any impossible candidates.
+
+        Args:
+            words (list[str]): The list of words to filter.
+
+        Returns:
+            list[str]: The strictly filtered list of words.
+        """
+        filtered = []
+
         for word in words:
-            # Check greys
+            # Reject words with any grey letters
             if any(char in self.greys for char in word):
                 continue
+
             # Check greens
             if any(word[pos] != letter for pos, letter in self.greens.items()):
                 continue
+
             # Check yellows
             valid = True
             for letter, bad_positions in self.yellows.items():
@@ -74,22 +118,11 @@ class Filter:
                 if word_counts.get(letter, 0) > max_count:
                     valid = False
                     break
+
             if valid:
                 filtered.append(word)
+
         return sorted(filtered)
-
-    def candidates(self, words: list[str]) -> list[str]:
-        """
-        Returns a list of words that are legal given the green and yellow letters,
-        and do not contain any grey letters.
-
-        Args:
-            words (list[str]): The list of words to filter.
-
-        Returns:
-            list[str]: The filtered list of words.
-        """
-        return self.filter_candidates(words)
 
     def update(self, guess: str, feedback: str) -> None:
         """

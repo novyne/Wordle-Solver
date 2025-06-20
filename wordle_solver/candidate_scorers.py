@@ -1,5 +1,4 @@
-from wordle_solver.wordle import get_feedback
-from wordle_solver.filter import Filter
+from utils import get_feedback
 
 class DefaultScorer:
 
@@ -62,7 +61,7 @@ class DefaultScorer:
 
         # Penalize duplicate letters less harshly
         duplicate_count = len(candidate) - len(unique_letters)
-        score -= 20 * duplicate_count ** 2
+        score -= 20 * duplicate_count ** 1.5
 
         # Add positional letter frequency bonus using cached counts, weighted more
         score += positional_letter_bonus(candidate, self._position_counts) * 7.5
@@ -89,6 +88,9 @@ class ReductionScorer:
         return getattr(self.ranker, name)
     
     def score(self, candidate: str) -> float:
+
+        from wordle_solver.filter import Filter
+
         total_remaining = 0
         candidates = self.ranker.candidates
         num_candidates = len(candidates)
@@ -118,7 +120,6 @@ class HybridScorer:
     
     def score(self, candidate: str) -> float:
         
-        if len(self.candidates) < 20:
-            return ReductionScorer(self.ranker).score(candidate)
-
+        if len(self.candidates) < 100:
+            return ReductionScorer(self.ranker).score(candidate) * 1500# + DefaultScorer(self.ranker).score(candidate) * 0.01
         return DefaultScorer(self.ranker).score(candidate)

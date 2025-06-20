@@ -1,6 +1,6 @@
-from config import WORDS, args, format_candidates
+from utils import WORDS, args, format_candidates
 
-from wordle_solver.solver import CandidateRanker
+from wordle_solver.candidate_ranker import CandidateRanker
 from wordle_solver.filter import Filter
 import wordle_solver.candidate_scorers as cs
 

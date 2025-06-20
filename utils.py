@@ -66,3 +66,25 @@ if not WORDS:
 
 def format_candidates(candidates: list[str]) -> str:
     return "".join(word.ljust(10 + args.length) for word in candidates)
+
+def get_feedback(guess: str, answer: str) -> str:
+    """
+    Returns a string of feedback colors for the guess compared to the answer.
+    'g' for green, 'y' for yellow, 'x' for grey.
+    """
+    feedback = ['x'] * len(guess)
+    answer_chars: list[str | None] = list(answer)
+
+    # First pass for greens
+    for i, char in enumerate(guess):
+        if char == answer[i]:
+            feedback[i] = 'g'
+            answer_chars[i] = None  # Remove matched char
+
+    # Second pass for yellows
+    for i, char in enumerate(guess):
+        if feedback[i] == 'x' and char in answer_chars:
+            feedback[i] = 'y'
+            answer_chars[answer_chars.index(char)] = None  # Remove matched char
+
+    return ''.join(feedback)
