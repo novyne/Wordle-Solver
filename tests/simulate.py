@@ -20,12 +20,13 @@ PRINT_LOCK = threading.Lock()
 
 SCORER = cs.DefaultScorer
 
-def play_single_game(answer: str) -> Tuple[bool, int]:
+def play_single_game(answer: str, scorer=SCORER) -> Tuple[bool, int]:
     """
     Plays a single game of Wordle where the bot tries to guess the answer.
 
     Args:
         answer (str): The word to guess.
+        scorer (CandidateScorer): The scorer to use for candidate ranking.
 
     Returns:
         Tuple[bool, int]: (success, number_of_guesses)
@@ -46,7 +47,7 @@ def play_single_game(answer: str) -> Tuple[bool, int]:
             return False, guesses
 
         # Pick the most likely candidate
-        guess = CandidateRanker(candidates, scorer=SCORER).most_likely_candidates(1)[0]
+        guess = CandidateRanker(candidates, scorer=scorer).most_likely_candidates(1)[0]
         guesses += 1
 
         # with PRINT_LOCK:

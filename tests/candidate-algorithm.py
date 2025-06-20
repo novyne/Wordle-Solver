@@ -1,8 +1,8 @@
 from config import WORDS, args, format_candidates
-from solver import CandidateRanker
-from filter import Filter
 
-import candidate_scorers as cs
+from wordle_solver.solver import CandidateRanker
+from wordle_solver.filter import Filter
+import wordle_solver.candidate_scorers as cs
 
 scorer = cs.ReductionScorer
 

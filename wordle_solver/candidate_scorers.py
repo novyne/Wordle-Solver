@@ -1,22 +1,9 @@
 from wordle_solver.wordle import get_feedback
 from wordle_solver.filter import Filter
 
-class DummyScorer:
-
-    def __init__(self, ranker):
-        self.ranker = ranker
-
-    def score(self, candidate: str) -> float:
-        # Print important CandidateRanker variables to demonstrate access
-        print("Letter counts:", self.ranker._letter_counts)
-        print("Total letters:", self.ranker._total_letters)
-        print("Position counts:", self.ranker._position_counts)
-        print("Letter presence:", self.ranker._letter_presence)
-        print("Total candidates:", self.ranker._total_candidates)
-        # Return 0.0 as empty scorer
-        return 0.0
-
 class DefaultScorer:
+
+    TESTING_ENABLED = True
 
     def __init__(self, ranker):
         self.ranker = ranker
@@ -93,6 +80,8 @@ class ReductionScorer:
 
     """Scores purely based on how many candidates can be eliminated with a given guess."""
 
+    TESTING_ENABLED = False
+
     def __init__(self, ranker):
         self.ranker = ranker
     
@@ -118,6 +107,8 @@ class ReductionScorer:
         return -average_remaining
 
 class HybridScorer:
+
+    TESTING_ENABLED = True
 
     def __init__(self, ranker):
         self.ranker = ranker

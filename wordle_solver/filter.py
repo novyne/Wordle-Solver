@@ -49,7 +49,7 @@ class Filter:
                     break
             if valid:
                 filtered.append(word)
-        return filtered
+        return sorted(filtered)
 
     def candidates(self, words: list[str]) -> list[str]:
         """
