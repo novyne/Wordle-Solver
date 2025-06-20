@@ -52,10 +52,10 @@ def update_filter_with_feedback(filter: Filter, guess: str, feedback: str) -> No
         elif feedback[i] == 'y':
             if char not in filter.yellows:
                 filter.yellows[char] = set()
-                filter.yellows[char].add(i)
-            elif feedback[i] == 'x':
-                if char not in filter.greys:
-                    filter.greys.add(char)
+            filter.yellows[char].add(i)
+        elif feedback[i] == 'x':
+            if char not in filter.greys:
+                filter.greys.add(char)
 
 def get_user_guess() -> str:
     return input("Guess a word:\t")

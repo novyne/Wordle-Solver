@@ -20,13 +20,14 @@ PRINT_LOCK = threading.Lock()
 
 SCORER = cs.DefaultScorer
 
-def play_single_game(answer: str, scorer=SCORER) -> Tuple[bool, int]:
+def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) -> Tuple[bool, int]:
     """
     Plays a single game of Wordle where the bot tries to guess the answer.
 
     Args:
         answer (str): The word to guess.
         scorer (CandidateScorer): The scorer to use for candidate ranking.
+        display_guesses (bool): Whether to print the guesses.
 
     Returns:
         Tuple[bool, int]: (success, number_of_guesses)
@@ -38,10 +39,14 @@ def play_single_game(answer: str, scorer=SCORER) -> Tuple[bool, int]:
     while True:
         candidates = filter.candidates(WORDS)
         if not candidates:
+            if display_guesses:
+                print("OUT OF CANDIDATES!")
             return False, guesses
 
         # Pick the most likely candidate
         guess = CandidateRanker(candidates, scorer=scorer).most_likely_candidates(1)[0]
+        if display_guesses:
+            print(f"Guess {guesses+1}: {guess}")
         guesses += 1
 
         if guess == answer:
@@ -90,13 +95,9 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
                 for future in as_completed(future_to_game):
                     game_num, answer = future_to_game[future]
                     progress.advance(task)
-                    # with PRINT_LOCK:
-                    #     print(f"Game {game_num}/{args.game_number} completed.")
                     try:
                         success, guesses = future.result()
                     except Exception as exc:
-                        with PRINT_LOCK:
-                            print(f"Game {game_num} generated an exception: {exc}")
                         success, guesses = False, MAX_GUESSES + 1
 
                     guess_distribution[guesses] += 1
@@ -111,13 +112,9 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
 
             for future in as_completed(future_to_game):
                 game_num, answer = future_to_game[future]
-                with PRINT_LOCK:
-                    print(f"Game {game_num}/{args.game_number} completed.")
                 try:
                     success, guesses = future.result()
                 except Exception as exc:
-                    with PRINT_LOCK:
-                        print(f"Game {game_num} generated an exception: {exc}")
                     success, guesses = False, MAX_GUESSES + 1
 
                 guess_distribution[guesses] += 1

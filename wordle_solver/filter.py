@@ -18,10 +18,16 @@ class Filter:
         self.greys = greys or set()
         self.length = length
 
+        # Track minimum counts of letters based on feedback
+        self.min_counts = {}
+        # Track maximum counts of letters based on feedback
+        self.max_counts = {}
+
     def filter_candidates(self, words: list[str]) -> list[str]:
         """
         Returns a list of words that satisfy all constraints: no grey letters,
-        green letters in correct positions, yellow letters present but not in bad positions.
+        green letters in correct positions, yellow letters present but not in bad positions,
+        and letter counts satisfy min and max constraints.
 
         Args:
             words (list[str]): The list of words to filter.
@@ -45,6 +51,27 @@ class Filter:
                     valid = False
                     break
                 if any(word[pos] == letter for pos in bad_positions):
+                    valid = False
+                    break
+            if not valid:
+                continue
+
+            # Check min and max counts
+            word_counts = {}
+            for c in word:
+                word_counts[c] = word_counts.get(c, 0) + 1
+
+            # Check min counts
+            for letter, min_count in self.min_counts.items():
+                if word_counts.get(letter, 0) < min_count:
+                    valid = False
+                    break
+            if not valid:
+                continue
+
+            # Check max counts
+            for letter, max_count in self.max_counts.items():
+                if word_counts.get(letter, 0) > max_count:
                     valid = False
                     break
             if valid:
@@ -74,6 +101,15 @@ class Filter:
         The maps are updated based on the feedback.
         """
 
+        # Count occurrences of letters in guess with feedback
+        guess_counts = {}
+        green_yellow_counts = {}
+
+        for i, char in enumerate(guess):
+            guess_counts[char] = guess_counts.get(char, 0) + 1
+            if feedback[i] in ('g', 'y'):
+                green_yellow_counts[char] = green_yellow_counts.get(char, 0) + 1
+
         for i, char in enumerate(guess):
             if feedback[i] == 'g':
                 self.greens[i] = char
@@ -87,4 +123,13 @@ class Filter:
                     self.yellows[char] = set()
                 self.yellows[char].add(i)
             elif feedback[i] == 'x':
-                self.greys.add(char)
+                # If the letter has green or yellow elsewhere, set max count to green_yellow_counts
+                if char in green_yellow_counts:
+                    self.max_counts[char] = green_yellow_counts[char]
+                else:
+                    self.greys.add(char)
+
+        # Update min_counts for letters with green or yellow feedback
+        for char, count in green_yellow_counts.items():
+            if char not in self.min_counts or self.min_counts[char] < count:
+                self.min_counts[char] = count

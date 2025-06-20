@@ -1,10 +1,6 @@
 import inspect
 
-from config import WORDS
-
 from wordle_solver import candidate_scorers as cs
-from wordle_solver.filter import Filter
-from wordle_solver.solver import CandidateRanker
 
 from tests.simulate import play_single_game
 
@@ -14,6 +10,9 @@ scorers = [cls for name, cls in inspect.getmembers(cs, inspect.isclass) if cls._
 answer = 'petty'
 
 for scorer in scorers:
-    print(f"Scorer: {scorer.__name__}")
-    _, guesses = play_single_game(answer, scorer)
-    print(f"Guesses: {guesses}")
+    print(f"\n\nScorer: {scorer.__name__}")
+    success, guesses = play_single_game(answer, scorer, display_guesses=True)
+    if not success:
+        print("FAILED!")
+    else:
+        print(f"Guesses: {guesses}")
