@@ -2,10 +2,13 @@ from typing import Optional
 from wordle_solver import candidate_scorers as cs
 from wordle_solver.candidate_ranker import CandidateRanker
 
+from utils import get_feedback
+
 # Constant to select the candidate scorer class to use for ranking impossible candidates
 # Use string name to avoid circular import
 CANDIDATE_SCORER_CLASS = cs.HybridScorer
-IMPOSSIBLE_PROPORTION_KEPT = 0.2
+IMPOSSIBLE_PROPORTION_KEPT = 0.1
+IMPOSSIBLE_DISREGARD_THRESHOLD = 10 # If the number of valid candidates is less than this, include impossible candidates
 
 class Filter:
 
@@ -43,22 +46,76 @@ class Filter:
             list[str]: The filtered list of words.
         """
 
-        filtered = []
-        impossible_candidates = []
-
         filtered = self.strict_candidates(words)
+
+        if len(filtered) > IMPOSSIBLE_DISREGARD_THRESHOLD:
+            return filtered
+
         impossible_candidates = [word for word in words if word not in filtered]
 
         # Use CandidateRanker from solver.py for scoring
         ranker = CandidateRanker(words, scorer=CANDIDATE_SCORER_CLASS)
 
+        # Score filtered candidates and get top N
+        scored_filtered = [(word, ranker.scorer.score(word)) for word in filtered]
+        scored_filtered.sort(key=lambda x: x[1], reverse=True)
+        top_filtered = [word for word, score in scored_filtered[:10]]
+
         # Score impossible candidates
         scored_impossible = [(word, ranker.scorer.score(word)) for word in impossible_candidates]
         scored_impossible.sort(key=lambda x: x[1], reverse=True)
 
-        num_to_keep = max(1, int(len(impossible_candidates) * IMPOSSIBLE_PROPORTION_KEPT))
+        def feedback_heuristic(candidate: str, top_candidates: list[str]) -> bool:
+            """
+            Returns True if the candidate minimizes greys and maximizes yellows compared to top candidates,
+            while penalizing overlap in green letters and rewarding unique letters.
+            """
+            def violates_filter_constraints(word: str) -> bool:
+                # Check if word violates current filter constraints (greens, yellows, greys)
+                # Greys: no grey letters allowed
+                if any(char in self.greys for char in word):
+                    return True
+                # Greens: letters must be in correct positions
+                for pos, letter in self.greens.items():
+                    if word[pos] != letter:
+                        return True
+                # Yellows: letters must be present but not in bad positions
+                for letter, bad_positions in self.yellows.items():
+                    if letter not in word:
+                        return True
+                    if any(word[pos] == letter for pos in bad_positions):
+                        return True
+                return False
 
-        kept_impossible = [word for word, score in scored_impossible[:num_to_keep]]
+            if violates_filter_constraints(candidate):
+                return False
+
+            green_positions = set(self.greens.keys())
+            green_letters = set(self.greens.values())
+            candidate_unique_letters = set(candidate)
+
+            for top_candidate in top_candidates:
+                feedback = get_feedback(candidate, top_candidate)
+                grey_count = feedback.count('x')
+                yellow_count = feedback.count('y')
+
+                # Calculate overlap in green positions between candidate and top_candidate
+                green_overlap = sum(1 for pos in green_positions if candidate[pos] == top_candidate[pos])
+
+                # Calculate number of unique letters in candidate not in green letters
+                unique_new_letters = len(candidate_unique_letters - green_letters)
+
+                # Heuristic conditions (relaxed):
+                # - grey_count <= 2
+                # - yellow_count >= 1
+                # - green_overlap <= 2 (penalize too much overlap)
+                # - unique_new_letters >= 1 (reward new letters)
+                if (grey_count <= 2 and yellow_count >= 1 and
+                    green_overlap <= 2 and unique_new_letters >= 1):
+                    return True
+            return False
+
+        kept_impossible = [word for word, score in scored_impossible if feedback_heuristic(word, top_filtered)]
 
         combined = filtered + kept_impossible
 

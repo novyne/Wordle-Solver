@@ -91,6 +91,11 @@ class ReductionScorer:
 
         from wordle_solver.filter import Filter
 
+        # Collect a letter map of remaining candidates and reward candidates that use letters with lower frequencies
+        letter_map = {}
+        score = 0
+
+        # Averaging of remaining candidates
         total_remaining = 0
         candidates = self.ranker.candidates
         num_candidates = len(candidates)
@@ -101,12 +106,25 @@ class ReductionScorer:
             feedback = get_feedback(candidate, answer)
             filter = Filter(length=len(candidate))
             filter.update(candidate, feedback)
-            filtered_candidates = filter.candidates(candidates)
+            filtered_candidates = filter.strict_candidates(candidates)
             total_remaining += len(filtered_candidates)
+
+            # Collect letter frequencies
+            for i, char in enumerate(answer):
+                letter_map[char] = letter_map.get(char, 0) + 1
+
+        
+        # Normalise letter frequencies
+        for char in letter_map:
+            letter_map[char] = letter_map[char] / num_candidates
+
+        # Penalise candidates that use letters with higher frequencies
+        for char in candidate:
+            score -= letter_map.get(char, 0)
 
         average_remaining = total_remaining / num_candidates
         # Return negative average remaining to rank candidates that reduce more higher
-        return -average_remaining
+        return -average_remaining * 100 + score
 
 class HybridScorer:
 
@@ -120,6 +138,25 @@ class HybridScorer:
     
     def score(self, candidate: str) -> float:
         
+        if len(self.candidates) < 100:
+            return ReductionScorer(self.ranker).score(candidate) * 1500# + DefaultScorer(self.ranker).score(candidate) * 0.01
+        return DefaultScorer(self.ranker).score(candidate)
+
+class StrictHybridScorer:
+
+    TESTING_ENABLED = True
+
+    def __init__(self, ranker):
+        self.ranker = ranker
+
+    def __getattr__(self, name):
+        return getattr(self.ranker, name)
+
+    def score(self, candidate: str) -> float:
+
+        if candidate not in self.candidates:
+            return -float('inf')
+
         if len(self.candidates) < 100:
             return ReductionScorer(self.ranker).score(candidate) * 1500# + DefaultScorer(self.ranker).score(candidate) * 0.01
         return DefaultScorer(self.ranker).score(candidate)
