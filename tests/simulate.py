@@ -35,39 +35,24 @@ def play_single_game(answer: str, scorer=SCORER) -> Tuple[bool, int]:
     filter = Filter()
     guesses = 0
 
-    # with PRINT_LOCK:
-    #     print(f"Answer: {answer}")
-
     while True:
         candidates = filter.candidates(WORDS)
         if not candidates:
-            # No candidates left, fail the game
-            # with PRINT_LOCK:
-            #     print("No candidates left to guess. Failing the game.\n")
             return False, guesses
 
         # Pick the most likely candidate
         guess = CandidateRanker(candidates, scorer=scorer).most_likely_candidates(1)[0]
         guesses += 1
 
-        # with PRINT_LOCK:
-        #     print(f"Guess {guesses}: {guess}", end="\t")
-
         if guess == answer:
-            # with PRINT_LOCK:
-            #     print(f"\nGuessed {answer} in {guesses} guesses.\n")
             return True, guesses
 
         feedback = get_feedback(guess, answer)
-        # with PRINT_LOCK:
-        #     print(feedback)
 
         filter.update(guess, feedback)
 
         # Stop if guesses exceed a reasonable upper limit to avoid infinite loops
-        if guesses > MAX_GUESSES * 2:
-            # with PRINT_LOCK:
-            #     print(f"Exceeded maximum allowed guesses. Failing the game.\n")
+        if guesses > MAX_GUESSES * 3:
             return False, guesses
 
 def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
