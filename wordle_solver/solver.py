@@ -1,4 +1,3 @@
-
 from typing import Literal
 
 import wordle_solver.candidate_scorers as cs

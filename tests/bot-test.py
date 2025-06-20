@@ -1,14 +1,15 @@
 import random as rnd
 import threading
-import sys
 
 from typing import Tuple, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 
+from config import WORDS, args
+
 from wordle_solver import candidate_scorers as cs
-from wordle_solver.solver import CandidateRanker, Filter, WORDS, args
+from wordle_solver.solver import CandidateRanker, Filter
 from wordle_solver.wordle import get_feedback
 
 
