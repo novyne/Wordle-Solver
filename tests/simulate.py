@@ -41,6 +41,8 @@ def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) ->
         if not candidates:
             if display_guesses:
                 print("OUT OF CANDIDATES!")
+            with PRINT_LOCK:
+                print(f"Game ran out of candidates {answer=}")
             return False, guesses
 
         # Pick the most likely candidate
@@ -98,6 +100,8 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
                     try:
                         success, guesses = future.result()
                     except Exception as exc:
+                        with PRINT_LOCK:
+                            print(f"Error in game {game_num}: {exc}")
                         success, guesses = False, MAX_GUESSES + 1
 
                     guess_distribution[guesses] += 1
