@@ -120,7 +120,7 @@ class ReductionScorer:
 
         # Penalise candidates that use letters with higher frequencies
         for char in candidate:
-            score -= letter_map.get(char, 0)
+            score -= letter_map.get(char, 0) ** 2
 
         average_remaining = total_remaining / num_candidates
         # Return negative average remaining to rank candidates that reduce more higher
@@ -144,7 +144,7 @@ class HybridScorer:
 
 class StrictHybridScorer:
 
-    TESTING_ENABLED = True
+    TESTING_ENABLED = False
 
     def __init__(self, ranker):
         self.ranker = ranker
@@ -153,9 +153,6 @@ class StrictHybridScorer:
         return getattr(self.ranker, name)
 
     def score(self, candidate: str) -> float:
-
-        if candidate not in self.candidates:
-            return -float('inf')
 
         if len(self.candidates) < 100:
             return ReductionScorer(self.ranker).score(candidate) * 1500# + DefaultScorer(self.ranker).score(candidate) * 0.01

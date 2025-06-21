@@ -4,11 +4,9 @@ from wordle_solver.candidate_ranker import CandidateRanker
 
 from utils import get_feedback
 
-# Constant to select the candidate scorer class to use for ranking impossible candidates
-# Use string name to avoid circular import
 CANDIDATE_SCORER_CLASS = cs.HybridScorer
-IMPOSSIBLE_PROPORTION_KEPT = 0.1
-IMPOSSIBLE_DISREGARD_THRESHOLD = 10 # If the number of valid candidates is less than this, include impossible candidates
+IMPOSSIBLE_PROPORTION_KEPT = 0.25
+IMPOSSIBLE_DISREGARD_THRESHOLD = 15
 
 class Filter:
 
@@ -61,61 +59,66 @@ class Filter:
         scored_filtered.sort(key=lambda x: x[1], reverse=True)
         top_filtered = [word for word, score in scored_filtered[:10]]
 
-        # Score impossible candidates
-        scored_impossible = [(word, ranker.scorer.score(word)) for word in impossible_candidates]
-        scored_impossible.sort(key=lambda x: x[1], reverse=True)
+        # Letter map of all candidates
+        letter_map = {}
+        for word in filtered:
+            for i, char in enumerate(word):
+                letter_map[char] = letter_map.get(char, 0) + 1
+        # print(letter_map)
+        # print(filtered)
 
-        def feedback_heuristic(candidate: str, top_candidates: list[str]) -> bool:
-            """
-            Returns True if the candidate minimizes greys and maximizes yellows compared to top candidates,
-            while penalizing overlap in green letters and rewarding unique letters.
-            """
-            def violates_filter_constraints(word: str) -> bool:
-                # Check if word violates current filter constraints (greens, yellows, greys)
-                # Greys: no grey letters allowed
-                if any(char in self.greys for char in word):
-                    return True
-                # Greens: letters must be in correct positions
-                for pos, letter in self.greens.items():
-                    if word[pos] != letter:
-                        return True
-                # Yellows: letters must be present but not in bad positions
-                for letter, bad_positions in self.yellows.items():
-                    if letter not in word:
-                        return True
-                    if any(word[pos] == letter for pos in bad_positions):
-                        return True
-                return False
+        def contribution_score(candidate: str) -> float:
+            if not top_filtered:
+                return 0.0
 
-            if violates_filter_constraints(candidate):
-                return False
+            reference = top_filtered[0]
 
-            green_positions = set(self.greens.keys())
-            green_letters = set(self.greens.values())
-            candidate_unique_letters = set(candidate)
+            feedback = get_feedback(candidate, reference)
 
-            for top_candidate in top_candidates:
-                feedback = get_feedback(candidate, top_candidate)
-                grey_count = feedback.count('x')
-                yellow_count = feedback.count('y')
+            temp_filter = Filter(
+                greens=self.greens.copy(),
+                yellows={k: v.copy() for k, v in self.yellows.items()},
+                greys=self.greys.copy(),
+                length=self.length
+            )
 
-                # Calculate overlap in green positions between candidate and top_candidate
-                green_overlap = sum(1 for pos in green_positions if candidate[pos] == top_candidate[pos])
+            greens_before = len(temp_filter.greens)
+            yellows_before = sum(len(v) for v in temp_filter.yellows.values())
+            greys_before = len(temp_filter.greys)
 
-                # Calculate number of unique letters in candidate not in green letters
-                unique_new_letters = len(candidate_unique_letters - green_letters)
+            temp_filter.update(candidate, feedback)
 
-                # Heuristic conditions (relaxed):
-                # - grey_count <= 2
-                # - yellow_count >= 1
-                # - green_overlap <= 2 (penalize too much overlap)
-                # - unique_new_letters >= 1 (reward new letters)
-                if (grey_count <= 2 and yellow_count >= 1 and
-                    green_overlap <= 2 and unique_new_letters >= 1):
-                    return True
-            return False
+            greens_diff = len(temp_filter.greens) - greens_before
+            yellows_diff = sum(len(v) for v in temp_filter.yellows.values()) - yellows_before
+            greys_diff = len(temp_filter.greys) - greys_before
+            candidate_diff = len(filtered) - len(temp_filter.strict_candidates(filtered))
 
-        kept_impossible = [word for word, score in scored_impossible if feedback_heuristic(word, top_filtered)]
+            # Calculate ratios relative to current counts or 1 to avoid division by zero
+            greens_ratio = greens_diff / max(1, len(self.greens))
+            yellows_ratio = yellows_diff / max(1, sum(len(v) for v in self.yellows.values()))
+            greys_ratio = greys_diff / max(1, len(self.greys))
+
+            # print(f"CDiff for {candidate}: {candidate_diff}")
+
+            # Weighted sum of ratios
+            score = 2 * greens_ratio + 3 * yellows_ratio + 2 * greys_ratio + candidate_diff * 0.5
+
+            # Penalise using letters that appear frequently in the map (encourages diversity)
+            for char in candidate:
+                score -= letter_map.get(char, 0) ** 2
+            
+            # Exponentially reward based on the number of freq-1 letters in the candidate
+            score += sum(1 for char in candidate if letter_map.get(char, 0) == 1) ** 2
+
+            return score
+        
+        scored: list[tuple[str, float]] = [(word, contribution_score(word)) for word in impossible_candidates + filtered]
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        num_to_keep = max(1, int(len(filtered) * IMPOSSIBLE_PROPORTION_KEPT))
+        kept_impossible = [word for word, _ in scored[:num_to_keep]]
+
+        # print("Imps:", kept_impossible)
 
         combined = filtered + kept_impossible
 
@@ -123,28 +126,17 @@ class Filter:
 
     def strict_candidates(self, words: list[str]) -> list[str]:
         """
-        Returns a list of words that satisfy all constraints strictly: no grey letters allowed,
-        green letters in correct positions, yellow letters present but not in bad positions,
-        and letter counts satisfy min and max constraints.
-        This method does not keep any impossible candidates.
-
-        Args:
-            words (list[str]): The list of words to filter.
-
-        Returns:
-            list[str]: The strictly filtered list of words.
+        Return a list of words that could be the answer based on the current state of the filter.
         """
-        filtered = []
 
+        filtered = []
         for word in words:
-            # Reject words with any grey letters
+            # Check greys
             if any(char in self.greys for char in word):
                 continue
-
             # Check greens
             if any(word[pos] != letter for pos, letter in self.greens.items()):
                 continue
-
             # Check yellows
             valid = True
             for letter, bad_positions in self.yellows.items():
@@ -154,32 +146,9 @@ class Filter:
                 if any(word[pos] == letter for pos in bad_positions):
                     valid = False
                     break
-            if not valid:
-                continue
-
-            # Check min and max counts
-            word_counts = {}
-            for c in word:
-                word_counts[c] = word_counts.get(c, 0) + 1
-
-            # Check min counts
-            for letter, min_count in self.min_counts.items():
-                if word_counts.get(letter, 0) < min_count:
-                    valid = False
-                    break
-            if not valid:
-                continue
-
-            # Check max counts
-            for letter, max_count in self.max_counts.items():
-                if word_counts.get(letter, 0) > max_count:
-                    valid = False
-                    break
-
             if valid:
                 filtered.append(word)
-
-        return sorted(filtered)
+        return filtered
 
     def update(self, guess: str, feedback: str) -> None:
         """
@@ -190,15 +159,6 @@ class Filter:
         and the grey letters are stored in a set.
         The maps are updated based on the feedback.
         """
-
-        # Count occurrences of letters in guess with feedback
-        guess_counts = {}
-        green_yellow_counts = {}
-
-        for i, char in enumerate(guess):
-            guess_counts[char] = guess_counts.get(char, 0) + 1
-            if feedback[i] in ('g', 'y'):
-                green_yellow_counts[char] = green_yellow_counts.get(char, 0) + 1
 
         for i, char in enumerate(guess):
             if feedback[i] == 'g':
@@ -213,13 +173,4 @@ class Filter:
                     self.yellows[char] = set()
                 self.yellows[char].add(i)
             elif feedback[i] == 'x':
-                # If the letter has green or yellow elsewhere, set max count to green_yellow_counts
-                if char in green_yellow_counts:
-                    self.max_counts[char] = green_yellow_counts[char]
-                else:
-                    self.greys.add(char)
-
-        # Update min_counts for letters with green or yellow feedback
-        for char, count in green_yellow_counts.items():
-            if char not in self.min_counts or self.min_counts[char] < count:
-                self.min_counts[char] = count
+                self.greys.add(char)

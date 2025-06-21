@@ -15,7 +15,7 @@ for scorer in scorers:
     print(f"Scorer: {scorer.__name__}")
     success, guesses = play_single_game(answer, scorer, display_guesses=True)
     if not success:
-        print("FAILED!")
+        print("\nFAILED!")
     else:
-        print(f"Guesses: {guesses}")
+        print(f"\nGuesses: {guesses}")
     print("\n")

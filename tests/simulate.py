@@ -13,12 +13,12 @@ from wordle_solver.solver import CandidateRanker, Filter
 from wordle_solver.wordle import get_feedback
 
 
-args.game_number = 100
+args.game_number = 50
 
 MAX_GUESSES = 6
 PRINT_LOCK = threading.Lock()
 
-SCORER = cs.DefaultScorer
+SCORER = cs.HybridScorer
 
 def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) -> Tuple[bool, int]:
     """
@@ -48,13 +48,16 @@ def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) ->
         # Pick the most likely candidate
         guess = CandidateRanker(candidates, scorer=scorer).most_likely_candidates(1)[0]
         if display_guesses:
-            print(f"Guess {guesses+1} from {len(candidates)} cands:".ljust(30) + guess)
+            print(f"Guess {guesses+1} from {len(candidates)} cands:".ljust(30) + guess, end="\t")
         guesses += 1
 
         if guess == answer:
             return True, guesses
 
         feedback = get_feedback(guess, answer)
+
+        if display_guesses:
+            print(feedback)
 
         filter.update(guess, feedback)
 
