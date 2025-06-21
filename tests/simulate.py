@@ -5,6 +5,10 @@ from typing import Tuple, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+from rich.live import Live
+from rich.table import Table
+from rich.panel import Panel
+from rich.console import Group, Console
 
 from utils import WORDS, args
 
@@ -13,7 +17,7 @@ from wordle_solver.solver import CandidateRanker, Filter
 from wordle_solver.wordle import get_feedback
 
 
-args.game_number = 50
+args.game_number = 100
 
 MAX_GUESSES = 6
 PRINT_LOCK = threading.Lock()
@@ -65,6 +69,36 @@ def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) ->
         if guesses > MAX_GUESSES * 3:
             return False, guesses
 
+def generate_stats_table(num_games, games_played, wins, total_guesses, guess_distribution, example_words):
+    table = Table.grid(expand=True)
+    table.add_column(justify="left")
+    table.add_column(justify="right")
+
+    win_rate = (wins / games_played * 100) if games_played > 0 else 0.0
+    avg_guesses = (total_guesses / games_played) if games_played > 0 else 0.0
+
+    table.add_row("Games played:", f"{games_played} / {num_games}")
+    table.add_row("Games won:", f"{wins}")
+    table.add_row("Win rate:", f"{win_rate:.2f}%")
+    table.add_row("Average guesses:", f"{avg_guesses:.2f}")
+
+    dist_table = Table(title="Guess Distribution", show_header=True, header_style="bold magenta")
+    dist_table.add_column("Guesses", justify="right")
+    dist_table.add_column("Count", justify="right")
+    dist_table.add_column("Example Word", justify="left")
+
+    max_guess = max(guess_distribution.keys()) if guess_distribution else 0
+    for guess_count in range(1, max_guess + 1):
+        count = guess_distribution.get(guess_count, 0)
+        example_word = example_words.get(guess_count, "")
+        dist_table.add_row(str(guess_count), str(count), example_word)
+
+    group = Group(
+        Panel(table, title="Statistics", border_style="green"),
+        dist_table
+    )
+    return group
+
 def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
     """
     Runs multiple games and prints statistics about the bot's performance.
@@ -83,6 +117,7 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
 
     answers = rnd.choices(WORDS, k=min(num_games, len(WORDS)))
 
+    console = Console()
     if Progress is not None:
         with Progress(
             SpinnerColumn(),
@@ -91,12 +126,15 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
             "[progress.percentage]{task.percentage:>3.0f}%",
             "•",
             TimeElapsedColumn(),
+            console=console,
+            transient=True,
         ) as progress:
             task = progress.add_task(f"Running {num_games} games...", total=num_games)
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_game = {executor.submit(play_single_game, answer): (idx+1, answer) for idx, answer in enumerate(answers)}
 
+                games_played = 0
                 for future in as_completed(future_to_game):
                     game_num, answer = future_to_game[future]
                     progress.advance(task)
@@ -113,6 +151,13 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
                     total_guesses += guesses
                     if success and guesses <= MAX_GUESSES:
                         wins += 1
+                    games_played += 1
+
+                    # Update display only every 10 games to reduce flicker
+                    if games_played % 10 == 0 or games_played == num_games:
+                        stats_group = generate_stats_table(num_games, games_played, wins, total_guesses, guess_distribution, example_words)
+                        console.clear()
+                        console.print(stats_group)
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_game = {executor.submit(play_single_game, answer): (idx+1, answer) for idx, answer in enumerate(answers)}

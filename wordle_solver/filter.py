@@ -6,7 +6,7 @@ from utils import get_feedback
 
 CANDIDATE_SCORER_CLASS = cs.HybridScorer
 IMPOSSIBLE_PROPORTION_KEPT = 0.25
-IMPOSSIBLE_DISREGARD_THRESHOLD = 15
+IMPOSSIBLE_DISREGARD_THRESHOLD = 40
 
 class Filter:
 
@@ -98,17 +98,15 @@ class Filter:
             yellows_ratio = yellows_diff / max(1, sum(len(v) for v in self.yellows.values()))
             greys_ratio = greys_diff / max(1, len(self.greys))
 
-            # print(f"CDiff for {candidate}: {candidate_diff}")
-
             # Weighted sum of ratios
-            score = 2 * greens_ratio + 3 * yellows_ratio + 2 * greys_ratio + candidate_diff * 0.5
+            score = 6 * greens_ratio + 3 * yellows_ratio + 1.5 * greys_ratio + candidate_diff
 
             # Penalise using letters that appear frequently in the map (encourages diversity)
             for char in candidate:
                 score -= letter_map.get(char, 0) ** 2
             
             # Exponentially reward based on the number of freq-1 letters in the candidate
-            score += sum(1 for char in candidate if letter_map.get(char, 0) == 1) ** 2
+            score += sum(1 for char in candidate if letter_map.get(char, 0) == 1) ** 3
 
             return score
         
