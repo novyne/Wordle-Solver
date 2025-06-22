@@ -5,8 +5,8 @@ from wordle_solver.candidate_ranker import CandidateRanker
 from utils import get_feedback
 
 CANDIDATE_SCORER_CLASS = cs.HybridScorer
-IMPOSSIBLE_PROPORTION_KEPT = 0.25
-IMPOSSIBLE_DISREGARD_THRESHOLD = 40
+IMPOSSIBLE_PROPORTION_KEPT = 0.4
+IMPOSSIBLE_REGARD_RANGE = range(0, 40)
 
 class Filter:
 
@@ -46,7 +46,7 @@ class Filter:
 
         filtered = self.strict_candidates(words)
 
-        if len(filtered) > IMPOSSIBLE_DISREGARD_THRESHOLD:
+        if len(filtered) not in IMPOSSIBLE_REGARD_RANGE:
             return filtered
 
         impossible_candidates = [word for word in words if word not in filtered]
@@ -99,7 +99,7 @@ class Filter:
             greys_ratio = greys_diff / max(1, len(self.greys))
 
             # Weighted sum of ratios
-            score = 6 * greens_ratio + 3 * yellows_ratio + 1.5 * greys_ratio + candidate_diff
+            score = 6 * greens_ratio + 3 * yellows_ratio + 0.5 * greys_ratio + candidate_diff
 
             # Penalise using letters that appear frequently in the map (encourages diversity)
             for char in candidate:
@@ -148,7 +148,7 @@ class Filter:
                 filtered.append(word)
         return filtered
 
-    def update(self, guess: str, feedback: str) -> None:
+    def update(self, guess: str, feedback: int) -> None:
         """
         Updates the Filter with a guess and its corresponding feedback.
 
@@ -158,17 +158,19 @@ class Filter:
         The maps are updated based on the feedback.
         """
 
+        base = 3
         for i, char in enumerate(guess):
-            if feedback[i] == 'g':
+            digit = (feedback // (base ** i)) % base
+            if digit == 2:  # green
                 self.greens[i] = char
                 if char in self.yellows:
                     if i in self.yellows[char]:
                         self.yellows[char].remove(i)
                     if not self.yellows[char]:
                         del self.yellows[char]
-            elif feedback[i] == 'y':
+            elif digit == 1:  # yellow
                 if char not in self.yellows:
                     self.yellows[char] = set()
                 self.yellows[char].add(i)
-            elif feedback[i] == 'x':
+            elif digit == 0:  # grey
                 self.greys.add(char)

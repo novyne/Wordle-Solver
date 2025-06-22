@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 
 # Argument Parser
@@ -65,21 +66,96 @@ WORDS.sort()
 if not WORDS:
     raise Exception("No words found in wordlist or no wordlists found.")
 
+if not os.path.exists("feedback_map.json"):
+    with open("feedback_map.json", "w") as f:
+        json.dump({}, f)
+FEEDBACK_MAP = json.load(open("feedback_map.json", "r"))
+
 def format_candidates(candidates: list[str]) -> str:
     return "".join(word.ljust(10 + args.length) for word in candidates)
 
-def get_feedback(guess: str, answer: str) -> str:
+import atexit
+import threading
+import time
+
+def save_feedback_map():
     """
-    Returns a string of feedback colors for the guess compared to the answer.
-    'g' for green, 'y' for yellow, 'x' for grey.
+    Saves the FEEDBACK_MAP dictionary to the feedback_map.json file in a pretty and readable format.
+    """
+    with open("feedback_map.json", "w") as f:
+        json.dump(FEEDBACK_MAP, f, indent=4, sort_keys=True)
+
+# Auto-save feedback map at regular intervals (e.g., every 60 seconds)
+def _auto_save_feedback_map(interval=60):
+    while True:
+        time.sleep(interval)
+        print("Saving .json data, do not quit the program...")
+        save_feedback_map()
+
+# Start auto-save thread as daemon
+_auto_save_thread = threading.Thread(target=_auto_save_feedback_map, daemon=True)
+_auto_save_thread.start()
+
+# Also save feedback map on program exit
+atexit.register(save_feedback_map)
+
+def get_feedback(guess: str, answer: str) -> int:
+    """
+    Returns a single number representing feedback for the guess compared to the answer.
+    Each position is encoded as a base-3 digit:
+    0 = grey (x), 1 = yellow (y), 2 = green (g).
+    The number is constructed as sum of digit * 3^position.
     """
 
-    feedback = ['x'] * len(guess)
-
+    feedback_num = 0
+    base = 3
     for i, char in enumerate(guess):
         if char == answer[i]:
-            feedback[i] = 'g'
+            digit = 2
         elif char in answer:
-            feedback[i] = 'y'
+            digit = 1
+        else:
+            digit = 0
+        feedback_num += digit * (base ** i)
+    
+    # Save to feedback map in memory only
+    if guess not in FEEDBACK_MAP:
+        FEEDBACK_MAP[guess] = {}
+    FEEDBACK_MAP[guess][answer] = feedback_num
 
-    return "".join(feedback)
+    return feedback_num
+
+def format_feedback(feedback_num: int, length: int) -> str:
+    """
+    Formats the feedback number back into a string of 'g', 'y', 'x' for printing.
+    """
+
+    base = 3
+    feedback_chars = []
+    for _ in range(length):
+        digit = feedback_num % base
+        feedback_num //= base
+        if digit == 2:
+            feedback_chars.append('g')
+        elif digit == 1:
+            feedback_chars.append('y')
+        else:
+            feedback_chars.append('x')
+    return "".join(feedback_chars)
+
+def intify_feedback(feedback: str) -> int:
+    """
+    Converts a string of 'g', 'y', 'x' into an integer.
+    """
+
+    base = 3
+    feedback_num = 0
+    for i, char in enumerate(feedback):
+        if char == 'g':
+            digit = 2
+        elif char == 'y':
+            digit = 1
+        else:
+            digit = 0
+        feedback_num += digit * (base ** i)
+    return feedback_num

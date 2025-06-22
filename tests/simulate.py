@@ -129,7 +129,7 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
             console=console,
             transient=True,
         ) as progress:
-            task = progress.add_task(f"Running {num_games} games...", total=num_games)
+            task = progress.add_task(f"Running {num_games} games in {max_workers} threads...", total=num_games)
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_game = {executor.submit(play_single_game, answer): (idx+1, answer) for idx, answer in enumerate(answers)}

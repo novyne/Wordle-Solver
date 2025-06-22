@@ -5,13 +5,14 @@ from wordle_solver import candidate_scorers as cs
 from utils import WORDS
 from tests.simulate import play_single_game
 
+import cProfile
+
 
 scorers = [cls for name, cls in inspect.getmembers(cs, inspect.isclass) if cls.__module__ == cs.__name__ and cls.TESTING_ENABLED]
 
 answer = rnd.choice(WORDS)
-print(f"\nANSWER: {answer}\n\n")
 
-for scorer in scorers:
+def test_scorer(scorer):
     print(f"Scorer: {scorer.__name__}")
     success, guesses = play_single_game(answer, scorer, display_guesses=True)
     if not success:
@@ -19,3 +20,12 @@ for scorer in scorers:
     else:
         print(f"\nGuesses: {guesses}")
     print("\n")
+
+def main() -> None:
+    print(f"\nANSWER: {answer}\n\n")
+
+    for scorer in scorers:
+        test_scorer(scorer)
+
+if __name__ == "__main__":
+    cProfile.run('main()',sort='cumulative')

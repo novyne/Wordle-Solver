@@ -3,7 +3,7 @@ from typing import Literal
 import wordle_solver.candidate_scorers as cs
 from wordle_solver.filter import Filter
 from wordle_solver.candidate_ranker import CandidateRanker
-from utils import args, WORDS, format_candidates
+from utils import args, WORDS, format_candidates, intify_feedback
 
 
 def receive_word() -> str | Literal[False]:
@@ -81,7 +81,7 @@ def update_filter_from_input(filter: Filter) -> Filter:
         
         returned_data = receive_word_data()
 
-        filter.update(word, returned_data)
+        filter.update(word, intify_feedback(returned_data))
 
 
 def main():

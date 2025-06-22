@@ -2,7 +2,7 @@ from utils import get_feedback
 
 class DefaultScorer:
 
-    TESTING_ENABLED = True
+    TESTING_ENABLED = False
 
     def __init__(self, ranker):
         self.ranker = ranker
@@ -127,6 +127,76 @@ class ReductionScorer:
         # Return negative average remaining to rank candidates that reduce more higher
         return -average_remaining * 100 + score
 
+class EntropyScorer:
+
+    TESTING_ENABLED = True
+
+    def __init__(self, ranker):
+        self.ranker = ranker
+
+    def __getattr__(self, name):
+        return getattr(self.ranker, name)
+    
+    def entropy(self, candidate: str) -> float:
+        """
+        Calculate the entropy of a candidate word based on the distribution of feedback patterns
+        it produces against all remaining candidate answers.
+
+        Entropy is a measure of the expected information gain from guessing the candidate word.
+        Higher entropy indicates a guess that is expected to reduce the candidate space more effectively.
+
+        This method uses a cached feedback map (FEEDBACK_MAP) to avoid recalculating entropy for
+        candidates that have been scored before. If the entropy is not cached, it computes the
+        distribution of feedback patterns by comparing the candidate against all possible answers,
+        calculates the entropy from this distribution, and writes the updated entropy back to
+        'feedback_map.json' for future use.
+
+        Args:
+            candidate (str): The candidate word to calculate entropy for.
+
+        Returns:
+            float: The calculated entropy value representing expected information gain.
+        """
+
+        import math
+        import json
+
+        from collections import defaultdict
+
+        from utils import FEEDBACK_MAP
+
+        if candidate in FEEDBACK_MAP and "ENTROPY" in FEEDBACK_MAP[candidate]:
+            return FEEDBACK_MAP[candidate]["ENTROPY"]
+
+        patterns = defaultdict(int)
+
+        for answer in self.candidates:
+            feedback = get_feedback(candidate, answer)
+            patterns[feedback] += 1
+
+        e = sum(-(p / self._total_candidates) * math.log2(p / self._total_candidates) for p in patterns.values())
+
+        # Cache the calculated entropy in the feedback map and write to file for persistence
+        FEEDBACK_MAP.setdefault(candidate, {})["ENTROPY"] = e
+        with open('feedback_map.json', 'w') as f:
+            json.dump(FEEDBACK_MAP, f, indent=4, sort_keys=True)
+
+        return e
+
+    def score(self, candidate: str) -> float:
+        """
+        Score a candidate word by its entropy value, representing the expected information gain
+        from guessing this word.
+
+        Args:
+            candidate (str): The candidate word to score.
+
+        Returns:
+            float: The entropy score of the candidate.
+        """
+        return self.entropy(candidate)
+
+
 class HybridScorer:
 
     TESTING_ENABLED = True
@@ -139,7 +209,7 @@ class HybridScorer:
     
     def score(self, candidate: str) -> float:
         
-        if len(self.candidates) < 200:
+        if len(self.candidates) < 250:
             return ReductionScorer(self.ranker).score(candidate) * 1500# + DefaultScorer(self.ranker).score(candidate) * 0.01
         return DefaultScorer(self.ranker).score(candidate)
 
