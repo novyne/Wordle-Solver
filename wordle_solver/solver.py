@@ -88,7 +88,7 @@ def main():
 
     filter = Filter()
     
-    scorer = cs.HybridScorer
+    scorer = cs.EntropyScorer
 
     while True:
         filter = update_filter_from_input(filter)

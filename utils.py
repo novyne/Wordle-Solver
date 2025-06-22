@@ -79,14 +79,14 @@ cursor = conn.cursor()
 # cursor.execute("DROP TABLE IF EXISTS entropy")
 
 # Create table for feedback
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS feedback (
-    guess TEXT NOT NULL,
-    answer TEXT,
-    feedback_num INTEGER,
-    PRIMARY KEY (guess, answer)
-)
-""")
+# cursor.execute("""
+# CREATE TABLE IF NOT EXISTS feedback (
+#     guess TEXT NOT NULL,
+#     answer TEXT,
+#     feedback_num INTEGER,
+#     PRIMARY KEY (guess, answer)
+# )
+# """)
 
 # Create table for entropy with candidate_set_hash column
 cursor.execute("""
@@ -103,25 +103,8 @@ conn.commit()
 def format_candidates(candidates: list[str]) -> str:
     return "".join(word.ljust(10 + args.length) for word in candidates)
 
-def save_feedback_map():
-    """
-    Commit changes to the SQLite database.
-    """
-    conn.commit()
-
-# Auto-save feedback map at regular intervals (e.g., every 60 seconds)
-def _auto_save_feedback_map(interval=60):
-    while True:
-        time.sleep(interval)
-        print("Committing SQLite data, do not quit the program...")
-        save_feedback_map()
-
-# Start auto-save thread as daemon
-_auto_save_thread = threading.Thread(target=_auto_save_feedback_map, daemon=True)
-_auto_save_thread.start()
-
 # Also commit feedback map on program exit
-atexit.register(save_feedback_map)
+atexit.register(conn.commit)
 
 _feedback_cache = {}
 
@@ -147,12 +130,6 @@ def get_feedback(guess: str, answer: str) -> int:
         else:
             digit = 0
         feedback_num += digit * (base ** i)
-
-    # Save feedback to SQLite database
-    cursor.execute("""
-    INSERT OR REPLACE INTO feedback (guess, answer, feedback_num)
-    VALUES (?, ?, ?)
-    """, (guess, answer, feedback_num))
 
     _feedback_cache[cache_key] = feedback_num
 

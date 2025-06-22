@@ -10,11 +10,10 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.console import Group, Console
 
-from utils import WORDS, args
+from utils import WORDS, args, format_feedback, get_feedback
 
 from wordle_solver import candidate_scorers as cs
 from wordle_solver.solver import CandidateRanker, Filter
-from wordle_solver.wordle import get_feedback
 
 
 args.game_number = 100
@@ -22,7 +21,7 @@ args.game_number = 100
 MAX_GUESSES = 6
 PRINT_LOCK = threading.Lock()
 
-SCORER = cs.HybridScorer
+SCORER = cs.EntropyScorer
 
 def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) -> Tuple[bool, int]:
     """
@@ -41,7 +40,10 @@ def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) ->
     guesses = 0
 
     while True:
-        candidates = filter.candidates(WORDS)
+        if scorer.STRICT_CANDIDATES:
+            candidates = filter.strict_candidates(WORDS)
+        else:
+            candidates = filter.candidates(WORDS)
         if not candidates:
             if display_guesses:
                 print("OUT OF CANDIDATES!")
@@ -61,7 +63,7 @@ def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) ->
         feedback = get_feedback(guess, answer)
 
         if display_guesses:
-            print(feedback)
+            print(format_feedback(feedback, len(guess)))
 
         filter.update(guess, feedback)
 

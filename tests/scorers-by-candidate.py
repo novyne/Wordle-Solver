@@ -8,7 +8,8 @@ from tests.simulate import play_single_game
 import cProfile
 
 
-scorers = [cls for name, cls in inspect.getmembers(cs, inspect.isclass) if cls.__module__ == cs.__name__ and cls.TESTING_ENABLED]
+# scorers = [cls for name, cls in inspect.getmembers(cs, inspect.isclass) if cls.__module__ == cs.__name__ and cls.TESTING_ENABLED]
+scorers = [cs.EntropyScorer]
 
 answer = rnd.choice(WORDS)
 
@@ -28,4 +29,4 @@ def main() -> None:
         test_scorer(scorer)
 
 if __name__ == "__main__":
-    cProfile.run('main()',sort='cumulative')
+    main()
