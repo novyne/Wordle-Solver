@@ -133,6 +133,7 @@ class EntropyScorer:
 
     def __init__(self, ranker):
         self.ranker = ranker
+        self._entropy_cache = {}
 
     def __getattr__(self, name):
         return getattr(self.ranker, name)
@@ -149,7 +150,7 @@ class EntropyScorer:
         candidates that have been scored before. If the entropy is not cached, it computes the
         distribution of feedback patterns by comparing the candidate against all possible answers,
         calculates the entropy from this distribution, and writes the updated entropy back to
-        'feedback_map.json' for future use.
+        'feedback.db' for future use.
 
         Args:
             candidate (str): The candidate word to calculate entropy for.
@@ -159,14 +160,31 @@ class EntropyScorer:
         """
 
         import math
-        import json
+        import sqlite3
+        import hashlib
 
         from collections import defaultdict
 
-        from utils import FEEDBACK_MAP
+        from utils import conn
 
-        if candidate in FEEDBACK_MAP and "ENTROPY" in FEEDBACK_MAP[candidate]:
-            return FEEDBACK_MAP[candidate]["ENTROPY"]
+        # Compute a hash of the current candidate set to uniquely identify it
+        candidate_set_str = ",".join(sorted(self.candidates))
+        candidate_set_hash = hashlib.sha256(candidate_set_str.encode('utf-8')).hexdigest()
+
+        # Check in-memory cache first
+        cache_key = (candidate, candidate_set_hash)
+        if cache_key in self._entropy_cache:
+            return self._entropy_cache[cache_key]
+
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT entropy FROM entropy WHERE guess=? AND answer IS NULL AND candidate_set_hash=?", (candidate, candidate_set_hash))
+            row = cursor.fetchone()
+            if row is not None and row[0] is not None:
+                self._entropy_cache[cache_key] = row[0]
+                return row[0]
+        except Exception as err:
+            print(f"Error reading entropy from DB: {err}")
 
         patterns = defaultdict(int)
 
@@ -174,12 +192,20 @@ class EntropyScorer:
             feedback = get_feedback(candidate, answer)
             patterns[feedback] += 1
 
-        e = sum(-(p / self._total_candidates) * math.log2(p / self._total_candidates) for p in patterns.values())
+        e = sum(-(p / len(self.candidates)) * math.log2(p / len(self.candidates)) for p in patterns.values())
 
-        # Cache the calculated entropy in the feedback map and write to file for persistence
-        FEEDBACK_MAP.setdefault(candidate, {})["ENTROPY"] = e
-        with open('feedback_map.json', 'w') as f:
-            json.dump(FEEDBACK_MAP, f, indent=4, sort_keys=True)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO entropy (guess, answer, entropy, candidate_set_hash)
+                VALUES (?, NULL, ?, ?)
+            """, (candidate, e, candidate_set_hash))
+            conn.commit()
+        except Exception as ex:
+            print(f"Error writing entropy to DB: {ex}")
+            raise ex
+
+        self._entropy_cache[cache_key] = e
 
         return e
 
@@ -194,6 +220,7 @@ class EntropyScorer:
         Returns:
             float: The entropy score of the candidate.
         """
+
         return self.entropy(candidate)
 
 

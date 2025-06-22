@@ -21,6 +21,8 @@ class CandidateRanker:
         self._letter_presence = {}
         self._total_candidates = 0
 
+        self._caches_calculated = False
+
         self._calculate_caches()
 
         scorer_instance = self.scorer(self)
@@ -30,6 +32,9 @@ class CandidateRanker:
         """
         Calculate and store caches used for scoring candidates.
         """
+        if self._caches_calculated:
+            return
+
         letter_counts = {}
         total_letters = 0
         length = 0
@@ -58,6 +63,8 @@ class CandidateRanker:
         self._letter_presence = letter_presence
         self._total_candidates = len(self.candidates)
 
+        self._caches_calculated = True
+
     def most_likely_candidates(self, n: int = -1) -> list[str]:
         """
         Returns a list of the most likely candidates to be the word.
@@ -74,7 +81,18 @@ class CandidateRanker:
         """
         self._calculate_caches()
 
-        scored_candidates = [(c, self.scorer.score(c)) for c in self.candidates] # type: ignore
+        if not hasattr(self, '_score_cache'):
+            self._score_cache = {}
+
+        scored_candidates = []
+        for c in self.candidates:
+            if c in self._score_cache:
+                score = self._score_cache[c]
+            else:
+                score = self.scorer.score(c)  # type: ignore
+                self._score_cache[c] = score
+            scored_candidates.append((c, score))
+
         scored_candidates.sort(key=lambda x: x[1], reverse=True)
 
         if n == -1:

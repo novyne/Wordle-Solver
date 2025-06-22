@@ -1,6 +1,9 @@
 import argparse
-import json
 import os
+import sqlite3
+import threading
+import time
+import atexit
 
 # Argument Parser
 parser = argparse.ArgumentParser()
@@ -66,38 +69,61 @@ WORDS.sort()
 if not WORDS:
     raise Exception("No words found in wordlist or no wordlists found.")
 
-if not os.path.exists("feedback_map.json"):
-    with open("feedback_map.json", "w") as f:
-        json.dump({}, f)
-FEEDBACK_MAP = json.load(open("feedback_map.json", "r"))
+# SQLite database setup for feedback map
+DB_PATH = "feedback.db"
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+cursor = conn.cursor()
+
+# Drop old tables if exist (to update schema)
+# cursor.execute("DROP TABLE IF EXISTS feedback")
+# cursor.execute("DROP TABLE IF EXISTS entropy")
+
+# Create table for feedback
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS feedback (
+    guess TEXT NOT NULL,
+    answer TEXT,
+    feedback_num INTEGER,
+    PRIMARY KEY (guess, answer)
+)
+""")
+
+# Create table for entropy with candidate_set_hash column
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS entropy (
+    guess TEXT NOT NULL,
+    answer TEXT,
+    entropy REAL,
+    candidate_set_hash TEXT,
+    PRIMARY KEY (guess, answer, candidate_set_hash)
+)
+""")
+conn.commit()
 
 def format_candidates(candidates: list[str]) -> str:
     return "".join(word.ljust(10 + args.length) for word in candidates)
 
-import atexit
-import threading
-import time
-
 def save_feedback_map():
     """
-    Saves the FEEDBACK_MAP dictionary to the feedback_map.json file in a pretty and readable format.
+    Commit changes to the SQLite database.
     """
-    with open("feedback_map.json", "w") as f:
-        json.dump(FEEDBACK_MAP, f, indent=4, sort_keys=True)
+    conn.commit()
 
 # Auto-save feedback map at regular intervals (e.g., every 60 seconds)
 def _auto_save_feedback_map(interval=60):
     while True:
         time.sleep(interval)
-        print("Saving .json data, do not quit the program...")
+        print("Committing SQLite data, do not quit the program...")
         save_feedback_map()
 
 # Start auto-save thread as daemon
 _auto_save_thread = threading.Thread(target=_auto_save_feedback_map, daemon=True)
 _auto_save_thread.start()
 
-# Also save feedback map on program exit
+# Also commit feedback map on program exit
 atexit.register(save_feedback_map)
+
+_feedback_cache = {}
 
 def get_feedback(guess: str, answer: str) -> int:
     """
@@ -107,8 +133,12 @@ def get_feedback(guess: str, answer: str) -> int:
     The number is constructed as sum of digit * 3^position.
     """
 
-    feedback_num = 0
+    cache_key = (guess, answer)
+    if cache_key in _feedback_cache:
+        return _feedback_cache[cache_key]
+
     base = 3
+    feedback_num = 0
     for i, char in enumerate(guess):
         if char == answer[i]:
             digit = 2
@@ -117,11 +147,14 @@ def get_feedback(guess: str, answer: str) -> int:
         else:
             digit = 0
         feedback_num += digit * (base ** i)
-    
-    # Save to feedback map in memory only
-    if guess not in FEEDBACK_MAP:
-        FEEDBACK_MAP[guess] = {}
-    FEEDBACK_MAP[guess][answer] = feedback_num
+
+    # Save feedback to SQLite database
+    cursor.execute("""
+    INSERT OR REPLACE INTO feedback (guess, answer, feedback_num)
+    VALUES (?, ?, ?)
+    """, (guess, answer, feedback_num))
+
+    _feedback_cache[cache_key] = feedback_num
 
     return feedback_num
 

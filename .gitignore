@@ -173,6 +173,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# word & json files
+# word files & db
 *.txt
-*.json
+*.db
+*.db-journal

@@ -67,8 +67,14 @@ class Filter:
         # print(letter_map)
         # print(filtered)
 
+        contribution_score_cache = {}
+
         def contribution_score(candidate: str) -> float:
+            if candidate in contribution_score_cache:
+                return contribution_score_cache[candidate]
+
             if not top_filtered:
+                contribution_score_cache[candidate] = 0.0
                 return 0.0
 
             reference = top_filtered[0]
@@ -108,6 +114,7 @@ class Filter:
             # Exponentially reward based on the number of freq-1 letters in the candidate
             score += sum(1 for char in candidate if letter_map.get(char, 0) == 1) ** 3
 
+            contribution_score_cache[candidate] = score
             return score
         
         scored: list[tuple[str, float]] = [(word, contribution_score(word)) for word in impossible_candidates + filtered]
