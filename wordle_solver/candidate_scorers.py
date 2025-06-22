@@ -4,6 +4,7 @@ class DefaultScorer:
 
     TESTING_ENABLED = True
     STRICT_CANDIDATES = False
+    FIRST_GUESS = "tares"
 
     def __init__(self, ranker):
         self.ranker = ranker
@@ -82,7 +83,6 @@ class ReductionScorer:
 
     TESTING_ENABLED = False
     STRICT_CANDIDATES = False
-
     def __init__(self, ranker):
         self.ranker = ranker
     
@@ -133,6 +133,7 @@ class EntropyScorer:
 
     TESTING_ENABLED = True
     STRICT_CANDIDATES = True
+    FIRST_GUESS = "tares"
 
     CANDIDATE_HASH_CACHE = {}
 
@@ -168,15 +169,17 @@ class EntropyScorer:
 
         import math
         import hashlib
-
+        import traceback
+        import sqlite3
+        import os
         from collections import defaultdict
-
-        from utils import conn
+        from utils import get_feedback
 
         # Cache for feedback results to avoid redundant calculations
         if not hasattr(self, '_feedback_cache'):
             self._feedback_cache = {}
 
+        # Get candidate set hash
         if tuple(self.candidates) in self.CANDIDATE_HASH_CACHE:
             candidate_set_hash = self.CANDIDATE_HASH_CACHE[tuple(self.candidates)]
         else:
@@ -184,24 +187,35 @@ class EntropyScorer:
             candidate_set_hash = hashlib.sha256(candidate_set.encode()).hexdigest()
             self.CANDIDATE_HASH_CACHE[tuple(self.candidates)] = candidate_set_hash
 
-
-
         # Check in-memory cache first
         cache_key = (candidate, candidate_set_hash)
         if cache_key in self._entropy_cache:
             return self._entropy_cache[cache_key]
 
+        # Create a new connection per call to avoid threading issues
+        db_path = os.path.join(os.getcwd(), "feedback.db")
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+
         try:
-            with self._db_lock:
-                cursor = conn.cursor()
-                cursor.execute("SELECT entropy FROM entropy WHERE guess=? AND answer IS NULL AND candidate_set_hash=?", (candidate, candidate_set_hash))
-                row = cursor.fetchone()
-                cursor.close()
-                if row is not None and row[0] is not None:
-                    self._entropy_cache[cache_key] = row[0]
-                    return row[0]
+            cursor = conn.cursor()
+            candidate_set_hash_str = str(candidate_set_hash) if candidate_set_hash is not None else ""
+            candidate_str = str(candidate) if candidate is not None else ""
+            try:
+                cursor.execute("SELECT entropy FROM entropy WHERE guess=? AND answer=? AND candidate_set_hash=?", (candidate_str, "", candidate_set_hash_str))
+            except Exception as e:
+                print(f"Error executing SELECT with params: guess={candidate_str}, answer='', candidate_set_hash={candidate_set_hash_str}")
+                traceback.print_exc()
+                raise e
+            row = cursor.fetchone()
+            cursor.close()
+            if row is not None and row[0] is not None:
+                self._entropy_cache[cache_key] = row[0]
+                conn.close()
+                return row[0]
         except Exception as err:
             print(f"Error reading entropy from DB: {err}")
+            traceback.print_exc()
+            conn.close()
 
         patterns = defaultdict(int)
 
@@ -217,16 +231,23 @@ class EntropyScorer:
         e = sum(-(p / len(self.candidates)) * math.log2(p / len(self.candidates)) for p in patterns.values())
 
         try:
-            with self._db_lock:
-                cursor = conn.cursor()
+            cursor = conn.cursor()
+            try:
                 cursor.execute("""
                     INSERT OR REPLACE INTO entropy (guess, answer, entropy, candidate_set_hash)
-                    VALUES (?, NULL, ?, ?)
-                """, (candidate, e, candidate_set_hash))
-                cursor.close()
+                    VALUES (?, ?, ?, ?)
+                """, (candidate_str, "", e, candidate_set_hash_str))
+            except Exception as e:
+                print(f"Error executing INSERT with params: guess={candidate_str}, answer='', entropy={e}, candidate_set_hash={candidate_set_hash_str}")
+                traceback.print_exc()
+                raise e
+            conn.commit()
+            cursor.close()
+            conn.close()
         except Exception as ex:
             print(f"Error writing entropy to DB: {ex}")
-            raise ex
+            traceback.print_exc()
+            conn.close()
 
         self._entropy_cache[cache_key] = e
 
@@ -250,6 +271,7 @@ class HybridScorer:
 
     TESTING_ENABLED = True
     STRICT_CANDIDATES = False
+    FIRST_GUESS = "tares"
 
     def __init__(self, ranker):
         self.ranker = ranker
@@ -267,6 +289,7 @@ class StrictHybridScorer:
 
     TESTING_ENABLED = True
     STRICT_CANDIDATES = True
+    FIRST_GUESS = "tares"
 
     def __init__(self, ranker):
         self.ranker = ranker

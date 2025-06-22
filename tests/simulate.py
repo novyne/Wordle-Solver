@@ -40,23 +40,29 @@ def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) ->
     guesses = 0
 
     while True:
-        if scorer.STRICT_CANDIDATES:
-            candidates = filter.strict_candidates(WORDS)
-        else:
-            candidates = filter.candidates(WORDS)
-        if not candidates:
+        if guesses == 0 and hasattr(scorer, "FIRST_GUESS"):
+            guess = scorer.FIRST_GUESS
             if display_guesses:
-                print("OUT OF CANDIDATES!")
-            with PRINT_LOCK:
-                print(f"Game ran out of candidates ({answer=})")
-            return False, guesses
+                print(f"First guess:".ljust(30) + guess, end="\t")
 
-        # Pick the most likely candidate
-        guess = CandidateRanker(candidates, scorer=scorer).most_likely_candidates(1)[0]
-        if display_guesses:
-            print(f"Guess {guesses+1} from {len(candidates)} cands:".ljust(30) + guess, end="\t")
+        else:
+            if scorer.STRICT_CANDIDATES:
+                candidates = filter.strict_candidates(WORDS)
+            else:
+                candidates = filter.candidates(WORDS)
+            if not candidates:
+                if display_guesses:
+                    print("OUT OF CANDIDATES!")
+                with PRINT_LOCK:
+                    print(f"Game ran out of candidates ({answer=})")
+                return False, guesses
+
+            guess = CandidateRanker(candidates, scorer=scorer).most_likely_candidates(1)[0]
+
+            if display_guesses:
+                print(f"Guess {guesses+1} from {len(candidates)} cands:".ljust(30) + guess, end="\t")
+
         guesses += 1
-
         if guess == answer:
             return True, guesses
 

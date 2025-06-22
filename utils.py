@@ -88,11 +88,10 @@ cursor = conn.cursor()
 # )
 # """)
 
-# Create table for entropy with candidate_set_hash column
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS entropy (
     guess TEXT NOT NULL,
-    answer TEXT,
+    answer TEXT NOT NULL DEFAULT '',
     entropy REAL,
     candidate_set_hash TEXT,
     PRIMARY KEY (guess, answer, candidate_set_hash)
