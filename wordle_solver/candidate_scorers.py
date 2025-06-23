@@ -1,3 +1,5 @@
+import heapq
+
 from utils import get_feedback
 
 class DefaultScorer:
@@ -6,11 +8,46 @@ class DefaultScorer:
     STRICT_CANDIDATES = False
     FIRST_GUESS = "tares"
 
-    def __init__(self, ranker):
-        self.ranker = ranker
+    def __init__(self, candidates: list[str]):
+        self.candidates = candidates
+        self._caches_calculated = False
 
-    def __getattr__(self, name):
-        return getattr(self.ranker, name)
+    def _calculate_caches(self) -> None:
+        """
+        Calculate and store caches used for scoring candidates.
+        """
+        if self._caches_calculated:
+            return
+
+        letter_counts = {}
+        total_letters = 0
+        length = 0
+        for word in self.candidates:
+            length = len(word)
+            for char in word:
+                letter_counts[char] = letter_counts.get(char, 0) + 1
+                total_letters += 1
+
+        letter_presence = {}
+        for word in self.candidates:
+            unique_chars = set(word)
+            for char in unique_chars:
+                letter_presence[char] = letter_presence.get(char, 0) + 1
+
+        position_counts = [{} for _ in range(length)]
+        for word in self.candidates:
+            if len(word) != length:
+                continue
+            for i, char in enumerate(word):
+                position_counts[i][char] = position_counts[i].get(char, 0) + 1
+
+        self._letter_counts = letter_counts
+        self._total_letters = total_letters
+        self._position_counts = position_counts
+        self._letter_presence = letter_presence
+        self._total_candidates = len(self.candidates)
+
+        self._caches_calculated = True
 
     def score(self, candidate: str) -> float:
         """
@@ -28,6 +65,8 @@ class DefaultScorer:
         Returns:
             float: The calculated usefulness score for the candidate word.
         """
+
+        self._calculate_caches()
 
         def positional_letter_bonus(candidate: str, position_counts_cache: list[dict[str, int]]) -> float:
             """
@@ -77,17 +116,24 @@ class DefaultScorer:
 
         return score
 
+    def best(self, n: int = 1):
+
+        if n == 1:
+            return max(self.candidates, key=self.score)
+        else:
+            return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
+
+
 class ReductionScorer:
 
     """Scores purely based on how many candidates can be eliminated with a given guess."""
 
     TESTING_ENABLED = False
     STRICT_CANDIDATES = False
-    def __init__(self, ranker):
-        self.ranker = ranker
-    
-    def __getattr__(self, name):
-        return getattr(self.ranker, name)
+    def __init__(self, candidates: list[str]):
+        self.candidates = candidates
+
+    # Removed __getattr__ method that delegated to ranker
     
     def score(self, candidate: str) -> float:
 
@@ -99,7 +145,7 @@ class ReductionScorer:
 
         # Averaging of remaining candidates
         total_remaining = 0
-        candidates = self.ranker.candidates
+        candidates = self.candidates
         num_candidates = len(candidates)
         if num_candidates == 0:
             return 0.0
@@ -129,6 +175,12 @@ class ReductionScorer:
         # Return negative average remaining to rank candidates that reduce more higher
         return -average_remaining * 100 + score
 
+    def best(self, n: int = 1):
+        if n == 1:
+            return max(self.candidates, key=self.score)
+        else:
+            return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
+
 class EntropyScorer:
 
     TESTING_ENABLED = True
@@ -137,14 +189,14 @@ class EntropyScorer:
 
     CANDIDATE_HASH_CACHE = {}
 
-    def __init__(self, ranker):
+    def __init__(self, candidates: list[str]):
         import threading
-        self.ranker = ranker
+
+        self.candidates = candidates
         self._entropy_cache = {}
         self._db_lock = threading.Lock()
 
-    def __getattr__(self, name):
-        return getattr(self.ranker, name)
+    # Removed __getattr__ method that delegated to ranker
     
     def entropy(self, candidate: str) -> float:
         """
@@ -267,23 +319,32 @@ class EntropyScorer:
 
         return self.entropy(candidate)
 
+    def best(self, n: int = 1):
+        if n == 1:
+            return max(self.candidates, key=self.score)
+        else:
+            return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
+
 class HybridScorer:
 
     TESTING_ENABLED = True
     STRICT_CANDIDATES = False
     FIRST_GUESS = "tares"
 
-    def __init__(self, ranker):
-        self.ranker = ranker
-
-    def __getattr__(self, name):
-        return getattr(self.ranker, name)
+    def __init__(self, candidates: list[str]):
+        self.candidates = candidates
     
     def score(self, candidate: str) -> float:
         
         if len(self.candidates) < 250:
-            return ReductionScorer(self.ranker).score(candidate) * 1500# + DefaultScorer(self.ranker).score(candidate) * 0.01
-        return DefaultScorer(self.ranker).score(candidate)
+            return ReductionScorer(self.candidates).score(candidate) * 1500# + DefaultScorer(self.candidates).score(candidate) * 0.01
+        return DefaultScorer(self.candidates).score(candidate)
+
+    def best(self, n: int = 1):
+        if n == 1:
+            return max(self.candidates, key=self.score)
+        else:
+            return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
 
 class StrictHybridScorer:
 
@@ -291,14 +352,17 @@ class StrictHybridScorer:
     STRICT_CANDIDATES = True
     FIRST_GUESS = "tares"
 
-    def __init__(self, ranker):
-        self.ranker = ranker
-
-    def __getattr__(self, name):
-        return getattr(self.ranker, name)
+    def __init__(self, candidates: list[str]):
+        self.candidates = candidates
 
     def score(self, candidate: str) -> float:
 
         if len(self.candidates) < 100:
-            return ReductionScorer(self.ranker).score(candidate) * 1500# + DefaultScorer(self.ranker).score(candidate) * 0.01
-        return DefaultScorer(self.ranker).score(candidate)
+            return ReductionScorer(self.candidates).score(candidate) * 1500# + DefaultScorer(self.candidates).score(candidate) * 0.01
+        return DefaultScorer(self.candidates).score(candidate)
+
+    def best(self, n: int = 1):
+        if n == 1:
+            return max(self.candidates, key=self.score)
+        else:
+            return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]

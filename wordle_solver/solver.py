@@ -2,7 +2,6 @@ from typing import Literal
 
 import wordle_solver.candidate_scorers as cs
 from wordle_solver.filter import Filter
-from wordle_solver.candidate_ranker import CandidateRanker
 from utils import args, WORDS, format_candidates, intify_feedback
 
 
@@ -94,9 +93,7 @@ def main():
         filter = update_filter_from_input(filter)
 
         candidates = filter.candidates(WORDS)
-        candidate_ranker = CandidateRanker(candidates, scorer)
-
-        candidates = candidate_ranker.most_likely_candidates(args.candidate_number)
+        candidates = scorer().best(candidates, args.candidate_number)
 
         if len(candidates) == 0:
             print("No candidates found. Please revise your input data.\nSolver has been reset.")

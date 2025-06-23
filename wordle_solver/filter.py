@@ -1,10 +1,9 @@
 from typing import Optional
 from wordle_solver import candidate_scorers as cs
-from wordle_solver.candidate_ranker import CandidateRanker
 
 from utils import get_feedback
 
-CANDIDATE_SCORER_CLASS = cs.HybridScorer
+SCORER = cs.HybridScorer
 IMPOSSIBLE_PROPORTION_KEPT = 0.4
 IMPOSSIBLE_REGARD_RANGE = range(0, 40)
 
@@ -51,11 +50,8 @@ class Filter:
 
         impossible_candidates = [word for word in words if word not in filtered]
 
-        # Use CandidateRanker from solver.py for scoring
-        ranker = CandidateRanker(words, scorer=CANDIDATE_SCORER_CLASS)
-
         # Score filtered candidates and get top N
-        scored_filtered = [(word, ranker.scorer.score(word)) for word in filtered]
+        scored_filtered = [(word, SCORER(filtered).score(word)) for word in filtered]
         scored_filtered.sort(key=lambda x: x[1], reverse=True)
         top_filtered = [word for word, score in scored_filtered[:10]]
 

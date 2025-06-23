@@ -13,7 +13,7 @@ from rich.console import Group, Console
 from utils import WORDS, args, format_feedback, get_feedback
 
 from wordle_solver import candidate_scorers as cs
-from wordle_solver.solver import CandidateRanker, Filter
+from wordle_solver.solver import Filter
 
 
 args.game_number = 100
@@ -57,7 +57,7 @@ def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) ->
                     print(f"Game ran out of candidates ({answer=})")
                 return False, guesses
 
-            guess = CandidateRanker(candidates, scorer=scorer).most_likely_candidates(1)[0]
+            guess = scorer(candidates).best()
 
             if display_guesses:
                 print(f"Guess {guesses+1} from {len(candidates)} cands:".ljust(30) + guess, end="\t")
