@@ -2,7 +2,15 @@ import heapq
 
 from utils import get_feedback
 
-class DefaultScorer:
+class IntuitiveScorer:
+
+    """
+    Scores candidate words based on static heuristics that consider letter frequency, letter presence,
+    positional letter frequency, and uniqueness of letters. This scorer rewards candidates that are likely
+    to provide the most information gain by using common letters, letters in common positions, and penalizes
+    excessive duplicate letters. It also rewards candidates that share letters with many other candidates,
+    encouraging guesses that can eliminate more possibilities.
+    """
 
     TESTING_ENABLED = True
     STRICT_CANDIDATES = False
@@ -124,7 +132,13 @@ class DefaultScorer:
 
 class ReductionScorer:
 
-    """Scores purely based on how many candidates can be eliminated with a given guess."""
+    """
+    Scores candidate words based on their ability to reduce the candidate set size.
+    This scorer simulates the filtering effect of each guess against all remaining candidates,
+    rewarding guesses that eliminate the most candidates on average. It also penalizes guesses
+    that use letters with higher frequencies among remaining candidates, encouraging guesses
+    that target less common letters to maximize reduction.
+    """
 
     TESTING_ENABLED = False
     STRICT_CANDIDATES = False
@@ -180,6 +194,13 @@ class ReductionScorer:
             return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
 
 class EntropyScorer:
+
+    """
+    Scores candidate words based on the entropy of feedback patterns they produce against all remaining candidates.
+    Entropy measures the expected information gain from a guess, with higher entropy indicating a guess that
+    is expected to reduce the candidate space more effectively. This scorer uses caching and a database to
+    store entropy values for efficiency, and calculates entropy by simulating feedback distributions for each guess.
+    """
 
     TESTING_ENABLED = True
     STRICT_CANDIDATES = True
@@ -314,7 +335,36 @@ class EntropyScorer:
         else:
             return [candidate for candidate, score in heapq.nlargest(n, ((c, self.entropy(c)) for c in WORDS), key=lambda x: x[1])]
 
+
+class FastEntropyScorer:
+
+    """
+    Similar to EntropyScorer, but only computes entropy for candidates rather than for all WORDS.
+    This scorer is optimized for performance by limiting entropy calculations to the current candidate set.
+    """
+
+    TESTING_ENABLED = True
+    STRICT_CANDIDATES = False
+    FIRST_GUESS = "tares"
+
+    def __init__(self, candidates: list[str]):
+        self.candidates = candidates
+    
+    def best(self, n: int = 1):
+        es = EntropyScorer(self.candidates)
+
+        if n == 1:
+            return max(self.candidates, key=es.entropy)
+        else:
+            return [candidate for candidate, score in heapq.nlargest(n, ((c, es.entropy(c)) for c in self.candidates), key=lambda x: x[1])]
+
+
 class HybridScorer:
+
+    """
+    Combines scoring strategies by using ReductionScorer for smaller candidate sets and IntuitiveScorer: otherwise.
+    This hybrid approach aims to balance the benefits of candidate reduction and heuristic scoring for better performance.
+    """
 
     TESTING_ENABLED = True
     STRICT_CANDIDATES = False
@@ -326,8 +376,8 @@ class HybridScorer:
     def score(self, candidate: str) -> float:
         
         if len(self.candidates) < 250:
-            return ReductionScorer(self.candidates).score(candidate) * 1500# + DefaultScorer(self.candidates).score(candidate) * 0.01
-        return DefaultScorer(self.candidates).score(candidate)
+            return ReductionScorer(self.candidates).score(candidate) * 1500# + IntuitiveScorer:(self.candidates).score(candidate) * 0.01
+        return IntuitiveScorer(self.candidates).score(candidate)
 
     def best(self, n: int = 1):
         if n == 1:
@@ -335,7 +385,13 @@ class HybridScorer:
         else:
             return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
 
+
 class StrictHybridScorer:
+
+    """
+    Similar to HybridScorer but enforces strict candidate filtering.
+    Uses ReductionScorer for smaller candidate sets and IntuitiveScorer: otherwise.
+    """
 
     TESTING_ENABLED = True
     STRICT_CANDIDATES = True
@@ -347,11 +403,12 @@ class StrictHybridScorer:
     def score(self, candidate: str) -> float:
 
         if len(self.candidates) < 100:
-            return ReductionScorer(self.candidates).score(candidate) * 1500# + DefaultScorer(self.candidates).score(candidate) * 0.01
-        return DefaultScorer(self.candidates).score(candidate)
+            return ReductionScorer(self.candidates).score(candidate) * 1500# + IntuitiveScorer:(self.candidates).score(candidate) * 0.01
+        return IntuitiveScorer(self.candidates).score(candidate)
 
     def best(self, n: int = 1):
         if n == 1:
             return max(self.candidates, key=self.score)
         else:
             return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
+
