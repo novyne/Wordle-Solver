@@ -172,8 +172,11 @@ class Filter:
                     if not self.yellows[char]:
                         del self.yellows[char]
             elif digit == 1:  # yellow
+                if char in self.greys:
+                    self.greys.remove(char)
                 if char not in self.yellows:
                     self.yellows[char] = set()
                 self.yellows[char].add(i)
             elif digit == 0:  # grey
-                self.greys.add(char)
+                if char not in self.yellows:
+                    self.greys.add(char)

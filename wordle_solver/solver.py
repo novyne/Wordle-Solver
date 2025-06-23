@@ -87,14 +87,12 @@ def main():
 
     filter = Filter()
     
-    scorer = cs.EntropyScorer
+    scorer = cs.FastEntropyScorer
 
     while True:
         filter = update_filter_from_input(filter)
 
-        candidates = filter.candidates(WORDS)
-        candidates = scorer(candidates).best(args.candidate_number)
-
+        candidates = filter.strict_candidates(WORDS) if scorer.STRICT_CANDIDATES else filter.candidates(WORDS)
         if len(candidates) == 0:
             print("No candidates found. Please revise your input data.\nSolver has been reset.")
             filter = Filter()
@@ -102,6 +100,9 @@ def main():
         elif len(candidates) == 1:
             print(f"The word is: {candidates[0]}")
             return
+        
+        candidates = scorer(candidates).best(args.candidate_number)
+
         print(f"\nHere are {len(candidates)} possible candidates you can try:")
         print(format_candidates(candidates))
 

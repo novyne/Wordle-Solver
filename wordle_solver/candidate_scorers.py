@@ -124,7 +124,7 @@ class IntuitiveScorer:
 
         return score
 
-    def best(self, n: int = 1):
+    def best(self, n: int = 1) -> list[str] | str:
         if n == 1:
             return max(self.candidates, key=self.score)
         else:
@@ -187,7 +187,7 @@ class ReductionScorer:
         # Return negative average remaining to rank candidates that reduce more higher
         return -average_remaining * 100 + score
 
-    def best(self, n: int = 1):
+    def best(self, n: int = 1) -> list[str] | str:
         if n == 1:
             return max(self.candidates, key=self.score)
         else:
@@ -324,17 +324,16 @@ class EntropyScorer:
 
         return e
 
-    def best(self, n: int = 1):
+    def best(self, n: int = 1) -> list[str] | str:
 
         from utils import WORDS
 
+        if len(self.candidates) == 1:
+            return self.candidates[0]
         if n == 1:
-            if len(self.candidates) == 1:
-                return self.candidates[0]
             return max(WORDS, key=self.entropy)
         else:
             return [candidate for candidate, score in heapq.nlargest(n, ((c, self.entropy(c)) for c in WORDS), key=lambda x: x[1])]
-
 
 class FastEntropyScorer:
 
@@ -344,20 +343,21 @@ class FastEntropyScorer:
     """
 
     TESTING_ENABLED = True
-    STRICT_CANDIDATES = False
+    STRICT_CANDIDATES = True
     FIRST_GUESS = "tares"
 
     def __init__(self, candidates: list[str]):
         self.candidates = candidates
     
-    def best(self, n: int = 1):
+    def best(self, n: int = 1) -> list[str] | str:
         es = EntropyScorer(self.candidates)
 
+        if len(self.candidates) == 1:
+            return self.candidates[0]
         if n == 1:
             return max(self.candidates, key=es.entropy)
         else:
             return [candidate for candidate, score in heapq.nlargest(n, ((c, es.entropy(c)) for c in self.candidates), key=lambda x: x[1])]
-
 
 class HybridScorer:
 
@@ -379,12 +379,11 @@ class HybridScorer:
             return ReductionScorer(self.candidates).score(candidate) * 1500# + IntuitiveScorer:(self.candidates).score(candidate) * 0.01
         return IntuitiveScorer(self.candidates).score(candidate)
 
-    def best(self, n: int = 1):
+    def best(self, n: int = 1) -> list[str] | str:
         if n == 1:
             return max(self.candidates, key=self.score)
         else:
             return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
-
 
 class StrictHybridScorer:
 
@@ -406,9 +405,8 @@ class StrictHybridScorer:
             return ReductionScorer(self.candidates).score(candidate) * 1500# + IntuitiveScorer:(self.candidates).score(candidate) * 0.01
         return IntuitiveScorer(self.candidates).score(candidate)
 
-    def best(self, n: int = 1):
+    def best(self, n: int = 1) -> list[str] | str:
         if n == 1:
             return max(self.candidates, key=self.score)
         else:
             return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
-

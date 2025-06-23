@@ -21,7 +21,7 @@ args.game_number = 100
 MAX_GUESSES = 6
 PRINT_LOCK = threading.Lock()
 
-SCORER = cs.EntropyScorer
+SCORER = cs.FastEntropyScorer
 
 def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) -> Tuple[bool, int]:
     """
@@ -118,6 +118,10 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
     Returns:
         float: Performance percentage of the bot.
     """
+    
+    if "entropy" in SCORER.__name__.lower():
+        max_workers = 1
+
     total_guesses = 0
     wins = 0
     guess_distribution = defaultdict(int)
