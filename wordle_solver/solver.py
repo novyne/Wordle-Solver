@@ -93,7 +93,7 @@ def main():
         filter = update_filter_from_input(filter)
 
         candidates = filter.candidates(WORDS)
-        candidates = scorer().best(candidates, args.candidate_number)
+        candidates = scorer(candidates).best(args.candidate_number)
 
         if len(candidates) == 0:
             print("No candidates found. Please revise your input data.\nSolver has been reset.")

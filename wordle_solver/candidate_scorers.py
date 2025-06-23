@@ -117,12 +117,10 @@ class DefaultScorer:
         return score
 
     def best(self, n: int = 1):
-
         if n == 1:
             return max(self.candidates, key=self.score)
         else:
             return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
-
 
 class ReductionScorer:
 
@@ -305,25 +303,16 @@ class EntropyScorer:
 
         return e
 
-    def score(self, candidate: str) -> float:
-        """
-        Score a candidate word by its entropy value, representing the expected information gain
-        from guessing this word.
-
-        Args:
-            candidate (str): The candidate word to score.
-
-        Returns:
-            float: The entropy score of the candidate.
-        """
-
-        return self.entropy(candidate)
-
     def best(self, n: int = 1):
+
+        from utils import WORDS
+
         if n == 1:
-            return max(self.candidates, key=self.score)
+            if len(self.candidates) == 1:
+                return self.candidates[0]
+            return max(WORDS, key=self.entropy)
         else:
-            return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
+            return [candidate for candidate, score in heapq.nlargest(n, ((c, self.entropy(c)) for c in WORDS), key=lambda x: x[1])]
 
 class HybridScorer:
 
