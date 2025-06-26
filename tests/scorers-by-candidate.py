@@ -24,6 +24,5 @@ def main() -> None:
         test_scorer(scorer)
 
 if __name__ == "__main__":
-    # answer = rnd.choice(WORDS)
-    answer = 'comfy'
+    answer = rnd.choice(WORDS)
     main()

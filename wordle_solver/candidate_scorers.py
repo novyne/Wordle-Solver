@@ -205,13 +205,6 @@ class EntropyScorer:
     FIRST_GUESS = "soare"
 
     CANDIDATE_HASH_CACHE = {}
-
-    def __init__(self, candidates: list[str]):
-        import threading
-
-        self.candidates = candidates
-        self._entropy_cache = {}
-        self._db_lock = threading.Lock()
     
     def __init__(self, candidates: list[str]):
         import hashlib
@@ -223,8 +216,13 @@ class EntropyScorer:
         self._entropy_cache = {}
         self._db_lock = threading.Lock()
 
-        # Initialize persistent DB connection
-        db_path = os.path.join(os.getcwd(), "feedback.db")
+        # Ensure feedback directory exists
+        feedback_dir = os.path.join(os.getcwd(), "feedback")
+        if not os.path.exists(feedback_dir):
+            os.makedirs(feedback_dir)
+
+        # Initialize persistent DB connection in feedback directory
+        db_path = os.path.join(feedback_dir, "feedback.db")
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL;")  # Enable WAL for concurrency
         self._conn.execute("PRAGMA synchronous=NORMAL;")

@@ -21,7 +21,7 @@ args.game_number = 100
 MAX_GUESSES = 6
 PRINT_LOCK = threading.Lock()
 
-SCORER = cs.FastEntropyScorer
+SCORER = cs.EntropyScorer
 
 def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) -> Tuple[bool, int]:
     """

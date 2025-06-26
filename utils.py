@@ -69,8 +69,13 @@ WORDS.sort()
 if not WORDS:
     raise Exception("No words found in wordlist or no wordlists found.")
 
-# SQLite database setup for feedback map
-DB_PATH = "feedback.db"
+# Ensure feedback directory exists
+feedback_dir = os.path.join(os.getcwd(), "feedback")
+if not os.path.exists(feedback_dir):
+    os.makedirs(feedback_dir)
+
+# SQLite database setup for feedback map in feedback directory
+DB_PATH = os.path.join(feedback_dir, "feedback.db")
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = conn.cursor()
 
