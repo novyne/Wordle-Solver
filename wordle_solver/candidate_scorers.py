@@ -145,8 +145,6 @@ class ReductionScorer:
     def __init__(self, candidates: list[str]):
         self.candidates = candidates
 
-    # Removed __getattr__ method that delegated to ranker
-    
     def score(self, candidate: str) -> float:
 
         from wordle_solver.filter import Filter
@@ -204,7 +202,7 @@ class EntropyScorer:
 
     TESTING_ENABLED = True
     STRICT_CANDIDATES = True
-    FIRST_GUESS = "tares"
+    FIRST_GUESS = "soare"
 
     CANDIDATE_HASH_CACHE = {}
 
@@ -214,8 +212,6 @@ class EntropyScorer:
         self.candidates = candidates
         self._entropy_cache = {}
         self._db_lock = threading.Lock()
-
-    # Removed __getattr__ method that delegated to ranker
     
     def entropy(self, candidate: str) -> float:
         """
@@ -330,6 +326,8 @@ class EntropyScorer:
 
         if len(self.candidates) == 1:
             return self.candidates[0]
+        elif len(self.candidates) == 0:
+            return []
         if n == 1:
             return max(WORDS, key=self.entropy)
         else:
@@ -344,7 +342,7 @@ class FastEntropyScorer:
 
     TESTING_ENABLED = True
     STRICT_CANDIDATES = True
-    FIRST_GUESS = "tares"
+    FIRST_GUESS = "soare"
 
     def __init__(self, candidates: list[str]):
         self.candidates = candidates
@@ -354,6 +352,8 @@ class FastEntropyScorer:
 
         if len(self.candidates) == 1:
             return self.candidates[0]
+        elif len(self.candidates) == 0:
+            return []
         if n == 1:
             return max(self.candidates, key=es.entropy)
         else:
