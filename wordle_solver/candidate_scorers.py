@@ -3,20 +3,26 @@ from utils import get_feedback
 
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn
 
-def _best_with_progress(candidates, score_func, n=1, show_progress=False, description="Calculating scores..."):
+def _best_with_progress(scorer, n=1, show_progress=False, description="Calculating scores...", candidates=None, func=None):
     """
     Helper function to compute top n candidates with optional rich progress bar.
+    Uses scorer.candidates and scorer.score method.
     """
-    if len(candidates) == 1:
+    if candidates is None:
+        candidates = scorer.candidates
+    if func is None:
+        func = scorer.score
+
+    if len(scorer.candidates) == 1:
         return candidates[0]
-    elif len(candidates) == 0:
+    elif len(scorer.candidates) == 0:
         return []
 
     if not show_progress:
         if n == 1:
-            return max(candidates, key=score_func)
+            return max(candidates, key=func)
         else:
-            return [candidate for candidate, score in heapq.nlargest(n, ((c, score_func(c)) for c in candidates), key=lambda x: x[1])]
+            return [candidate for candidate, score in heapq.nlargest(n, ((c, func(c)) for c in candidates), key=lambda x: x[1])]
     else:
         scores = []
         with Progress(
@@ -29,7 +35,7 @@ def _best_with_progress(candidates, score_func, n=1, show_progress=False, descri
         ) as progress:
             task = progress.add_task(f"[green]{description}", total=len(candidates))
             for i, candidate in enumerate(candidates):
-                scores.append((candidate, score_func(candidate)))
+                scores.append((candidate, func(candidate)))
                 if i % 10 == 0:
                     progress.update(task, advance=10)
             progress.update(task, completed=len(candidates))
@@ -162,7 +168,7 @@ class IntuitiveScorer:
         return score
 
     def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
-        return _best_with_progress(self.candidates, self.score, n=n, show_progress=show_progress, description="Calculating Intuitive scores...")
+        return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Intuitive scores...")
 
 class ReductionScorer:
 
@@ -176,6 +182,7 @@ class ReductionScorer:
 
     TESTING_ENABLED = False
     STRICT_CANDIDATES = False
+
     def __init__(self, candidates: list[str]):
         self.candidates = candidates
 
@@ -220,7 +227,7 @@ class ReductionScorer:
         return -average_remaining * 100 + score
 
     def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
-        return _best_with_progress(self.candidates, self.score, n=n, show_progress=show_progress, description="Calculating Reduction scores...")
+        return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Reduction scores...")
 
 class EntropyScorer:
 
@@ -349,7 +356,7 @@ class EntropyScorer:
 
         from utils import WORDS
 
-        return _best_with_progress(WORDS, self.entropy, n=n, show_progress=show_progress, description="Calculating Entropy scores...")
+        return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Entropy scores...", candidates=WORDS, func=self.entropy)
 
 class FastEntropyScorer:
 
@@ -367,7 +374,7 @@ class FastEntropyScorer:
 
     def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
         es = EntropyScorer(self.candidates)
-        return _best_with_progress(self.candidates, es.entropy, n=n, show_progress=show_progress, description="Calculating Fast Entropy scores...")
+        return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Fast Entropy scores...", func=es.entropy)
 
 class HybridScorer:
 
@@ -390,7 +397,7 @@ class HybridScorer:
         return IntuitiveScorer(self.candidates).score(candidate)
 
     def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
-        return _best_with_progress(self.candidates, self.score, n=n, show_progress=show_progress, description="Calculating Hybrid scores...")
+        return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Hybrid scores...")
 
 class StrictHybridScorer:
 
@@ -413,4 +420,4 @@ class StrictHybridScorer:
         return IntuitiveScorer(self.candidates).score(candidate)
 
     def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
-        return _best_with_progress(self.candidates, self.score, n=n, show_progress=show_progress, description="Calculating Strict Hybrid scores...")
+        return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Strict Hybrid scores...")
