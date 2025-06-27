@@ -1,6 +1,43 @@
 import heapq
-
 from utils import get_feedback
+
+from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn
+
+def _best_with_progress(candidates, score_func, n=1, show_progress=False, description="Calculating scores..."):
+    """
+    Helper function to compute top n candidates with optional rich progress bar.
+    """
+    if len(candidates) == 1:
+        return candidates[0]
+    elif len(candidates) == 0:
+        return []
+
+    if not show_progress:
+        if n == 1:
+            return max(candidates, key=score_func)
+        else:
+            return [candidate for candidate, score in heapq.nlargest(n, ((c, score_func(c)) for c in candidates), key=lambda x: x[1])]
+    else:
+        scores = []
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+        ) as progress:
+            task = progress.add_task(f"[green]{description}", total=len(candidates))
+            for i, candidate in enumerate(candidates):
+                scores.append((candidate, score_func(candidate)))
+                if i % 10 == 0:
+                    progress.update(task, advance=10)
+            progress.update(task, completed=len(candidates))
+
+        if n == 1:
+            return max(scores, key=lambda x: x[1])[0]
+        else:
+            return [candidate for candidate, score in heapq.nlargest(n, scores, key=lambda x: x[1])]
 
 class IntuitiveScorer:
 
@@ -124,11 +161,8 @@ class IntuitiveScorer:
 
         return score
 
-    def best(self, n: int = 1) -> list[str] | str:
-        if n == 1:
-            return max(self.candidates, key=self.score)
-        else:
-            return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
+    def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
+        return _best_with_progress(self.candidates, self.score, n=n, show_progress=show_progress, description="Calculating Intuitive scores...")
 
 class ReductionScorer:
 
@@ -171,7 +205,7 @@ class ReductionScorer:
             for i, char in enumerate(answer):
                 letter_map[char] = letter_map.get(char, 0) + 1
 
-        
+
         # Normalise letter frequencies
         for char in letter_map:
             letter_map[char] = letter_map[char] / num_candidates
@@ -185,11 +219,8 @@ class ReductionScorer:
         # Return negative average remaining to rank candidates that reduce more higher
         return -average_remaining * 100 + score
 
-    def best(self, n: int = 1) -> list[str] | str:
-        if n == 1:
-            return max(self.candidates, key=self.score)
-        else:
-            return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
+    def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
+        return _best_with_progress(self.candidates, self.score, n=n, show_progress=show_progress, description="Calculating Reduction scores...")
 
 class EntropyScorer:
 
@@ -205,7 +236,7 @@ class EntropyScorer:
     FIRST_GUESS = "soare"
 
     CANDIDATE_HASH_CACHE = {}
-    
+
     def __init__(self, candidates: list[str]):
         import hashlib
         import threading
@@ -314,18 +345,11 @@ class EntropyScorer:
         except Exception:
             pass
 
-    def best(self, n: int = 1) -> list[str] | str:
+    def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
 
         from utils import WORDS
 
-        if len(self.candidates) == 1:
-            return self.candidates[0]
-        elif len(self.candidates) == 0:
-            return []
-        if n == 1:
-            return max(WORDS, key=self.entropy)
-        else:
-            return [candidate for candidate, score in heapq.nlargest(n, ((c, self.entropy(c)) for c in WORDS), key=lambda x: x[1])]
+        return _best_with_progress(WORDS, self.entropy, n=n, show_progress=show_progress, description="Calculating Entropy scores...")
 
 class FastEntropyScorer:
 
@@ -340,18 +364,10 @@ class FastEntropyScorer:
 
     def __init__(self, candidates: list[str]):
         self.candidates = candidates
-    
-    def best(self, n: int = 1) -> list[str] | str:
-        es = EntropyScorer(self.candidates)
 
-        if len(self.candidates) == 1:
-            return self.candidates[0]
-        elif len(self.candidates) == 0:
-            return []
-        if n == 1:
-            return max(self.candidates, key=es.entropy)
-        else:
-            return [candidate for candidate, score in heapq.nlargest(n, ((c, es.entropy(c)) for c in self.candidates), key=lambda x: x[1])]
+    def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
+        es = EntropyScorer(self.candidates)
+        return _best_with_progress(self.candidates, es.entropy, n=n, show_progress=show_progress, description="Calculating Fast Entropy scores...")
 
 class HybridScorer:
 
@@ -366,18 +382,15 @@ class HybridScorer:
 
     def __init__(self, candidates: list[str]):
         self.candidates = candidates
-    
+
     def score(self, candidate: str) -> float:
-        
+
         if len(self.candidates) < 250:
             return ReductionScorer(self.candidates).score(candidate) * 1500# + IntuitiveScorer:(self.candidates).score(candidate) * 0.01
         return IntuitiveScorer(self.candidates).score(candidate)
 
-    def best(self, n: int = 1) -> list[str] | str:
-        if n == 1:
-            return max(self.candidates, key=self.score)
-        else:
-            return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
+    def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
+        return _best_with_progress(self.candidates, self.score, n=n, show_progress=show_progress, description="Calculating Hybrid scores...")
 
 class StrictHybridScorer:
 
@@ -399,8 +412,5 @@ class StrictHybridScorer:
             return ReductionScorer(self.candidates).score(candidate) * 1500# + IntuitiveScorer:(self.candidates).score(candidate) * 0.01
         return IntuitiveScorer(self.candidates).score(candidate)
 
-    def best(self, n: int = 1) -> list[str] | str:
-        if n == 1:
-            return max(self.candidates, key=self.score)
-        else:
-            return [candidate for candidate, score in heapq.nlargest(n, ((c, self.score(c)) for c in self.candidates), key=lambda x: x[1])]
+    def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
+        return _best_with_progress(self.candidates, self.score, n=n, show_progress=show_progress, description="Calculating Strict Hybrid scores...")

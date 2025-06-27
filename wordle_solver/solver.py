@@ -102,7 +102,7 @@ def main():
             print(f"The word is: {candidates[0]}")
             return
         
-        candidates = scorer(candidates).best(args.candidate_number)
+        candidates = scorer(candidates).best(args.candidate_number, show_progress=True)
 
         print(f"\nHere are {len(candidates)} possible candidates you can try:")
         print(format_candidates(candidates))

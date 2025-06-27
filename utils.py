@@ -118,6 +118,8 @@ def get_feedback(guess: str, answer: str) -> int:
     Each position is encoded as a base-3 digit:
     0 = grey (x), 1 = yellow (y), 2 = green (g).
     The number is constructed as sum of digit * 3^position.
+
+    This version ensures the number of yellows and greens matches the answer's letter counts.
     """
 
     cache_key = (guess, answer)
@@ -126,13 +128,30 @@ def get_feedback(guess: str, answer: str) -> int:
 
     base = 3
     feedback_num = 0
+
+    # Track counts of letters in answer and guess
+    answer_letter_counts = {}
+    for ch in answer:
+        answer_letter_counts[ch] = answer_letter_counts.get(ch, 0) + 1
+
+    # First pass: mark greens and reduce counts
+    feedback_digits = [0] * len(guess)
     for i, char in enumerate(guess):
         if char == answer[i]:
-            digit = 2
-        elif char in answer:
-            digit = 1
-        else:
-            digit = 0
+            feedback_digits[i] = 2
+            answer_letter_counts[char] -= 1
+
+    # Second pass: mark yellows if letter exists in answer counts
+    for i, char in enumerate(guess):
+        if feedback_digits[i] == 0:
+            if char in answer_letter_counts and answer_letter_counts[char] > 0:
+                feedback_digits[i] = 1
+                answer_letter_counts[char] -= 1
+            else:
+                feedback_digits[i] = 0
+
+    # Construct feedback number
+    for i, digit in enumerate(feedback_digits):
         feedback_num += digit * (base ** i)
 
     _feedback_cache[cache_key] = feedback_num

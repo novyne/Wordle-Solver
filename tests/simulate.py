@@ -54,10 +54,10 @@ def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) ->
                 if display_guesses:
                     print("OUT OF CANDIDATES!")
                 with PRINT_LOCK:
-                    print(f"Game ran out of candidates ({answer=})")
+                    print(f"Game ran out of candidates ({answer=}, {filter.greens=}, {filter.yellows=}, {filter.greys=})")
                 return False, guesses
 
-            guess = scorer(candidates).best()
+            guess = scorer(candidates).best(show_progress=display_guesses)
 
             if display_guesses:
                 print(f"Guess {guesses+1} from {len(candidates)} cands:".ljust(30) + guess, end="\t")

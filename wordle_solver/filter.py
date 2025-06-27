@@ -171,23 +171,43 @@ class Filter:
         """
 
         base = 3
+        # Collect yellow positions per letter in current guess
+        current_yellow_positions_map = {}
+        for i, char in enumerate(guess):
+            digit = (feedback // (base ** i)) % base
+            if digit == 1:  # yellow
+                if char not in current_yellow_positions_map:
+                    current_yellow_positions_map[char] = set()
+                current_yellow_positions_map[char].add(i)
+
         for i, char in enumerate(guess):
             digit = (feedback // (base ** i)) % base
             if digit == 2:  # green
                 if char not in self.greens:
                     self.greens[char] = set()
                 self.greens[char].add(i)
+                # Remove yellow forbidden positions for this letter that are not in current guess's yellow positions
                 if char in self.yellows:
-                    if i in self.yellows[char]:
-                        self.yellows[char].remove(i)
+                    current_yellow_positions = current_yellow_positions_map.get(char, set())
+                    self.yellows[char] = self.yellows[char].intersection(current_yellow_positions)
                     if not self.yellows[char]:
                         del self.yellows[char]
             elif digit == 1:  # yellow
                 if char in self.greys:
                     self.greys.remove(char)
-                if char not in self.yellows:
-                    self.yellows[char] = set()
-                self.yellows[char].add(i)
+                # Only add yellow forbidden positions if green count < total occurrences in guess
+                green_count = len(self.greens.get(char, set()))
+                yellow_count = len(current_yellow_positions_map[char])
+                total_count_in_guess = sum(1 for c in guess if c == char)
+                if green_count < total_count_in_guess:
+                    self.yellows[char] = current_yellow_positions_map[char]
+                else:
+                    # Remove yellow forbidden positions if all occurrences are green
+                    if char in self.yellows:
+                        del self.yellows[char]
+                # Remove from greys if present
+                if char in self.greys:
+                    self.greys.remove(char)
             elif digit == 0:  # grey
-                if char not in self.yellows:
+                if char not in self.yellows and char not in self.greens:
                     self.greys.add(char)
