@@ -12,7 +12,7 @@ def test_scorer(scorer):
     print(f"Scorer: {scorer.__name__}")
     success, guesses = play_single_game(answer, scorer, display_guesses=True)
     if not success:
-        print("\nFAILED!")
+        print(f"\n{scorer.__name__.upper()} FAILED!")
     else:
         print(f"\nGuesses: {guesses}")
     print("\n")
@@ -24,5 +24,6 @@ def main() -> None:
         test_scorer(scorer)
 
 if __name__ == "__main__":
-    answer = rnd.choice(WORDS)
+    # answer = rnd.choice(WORDS)
+    answer = 'nubby'
     main()

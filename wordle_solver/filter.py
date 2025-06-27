@@ -25,11 +25,6 @@ class Filter:
         self.greys = greys or set()
         self.length = length
 
-        # Track minimum counts of letters based on feedback
-        self.min_counts = {}
-        # Track maximum counts of letters based on feedback
-        self.max_counts = {}
-
     def candidates(self, words: list[str]) -> list[str]:
         """
         Returns a list of words that satisfy all constraints: no grey letters,

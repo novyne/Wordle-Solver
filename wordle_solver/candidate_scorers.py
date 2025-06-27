@@ -14,7 +14,7 @@ def _best_with_progress(scorer, n=1, show_progress=False, description="Calculati
         func = scorer.score
 
     if len(scorer.candidates) == 1:
-        return candidates[0]
+        return scorer.candidates[0]
     elif len(scorer.candidates) == 0:
         return []
 
