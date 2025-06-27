@@ -224,17 +224,17 @@ class Filter:
                     self.yellows[char] = self.yellows[char].intersection(current_yellow_positions)
                     if not self.yellows[char]:
                         del self.yellows[char]
-            elif digit == 1:  # yellow
+            if digit == 1:  # yellow
                 if char in self.greys:
                     self.greys.remove(char)
-                # Only add yellow forbidden positions if green count < total occurrences in guess
+                # Only add yellow forbidden positions if green count + yellow count < total occurrences in guess
                 green_count = len(self.greens.get(char, set()))
                 yellow_count = len(current_yellow_positions_map[char])
                 total_count_in_guess = sum(1 for c in guess if c == char)
-                if green_count < total_count_in_guess:
+                if green_count + yellow_count < total_count_in_guess:
                     self.yellows[char] = current_yellow_positions_map[char]
                 else:
-                    # Remove yellow forbidden positions if all occurrences are green
+                    # Remove yellow forbidden positions if all occurrences are green or yellow
                     if char in self.yellows:
                         del self.yellows[char]
                 # Remove from greys if present

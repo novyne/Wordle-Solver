@@ -120,7 +120,7 @@ _feedback_cache = {}
 
 ord_dict = {c: i for i, c in enumerate("abcdefghijklmnopqrstuvwxyz")}
 
-def get_feedback(guess: str, answer: str) -> int:
+def old_get_feedback(guess: str, answer: str) -> int:
     """
     Optimized version of get_feedback using bitwise operations and integer encoding.
     Returns a single integer representing feedback for the guess compared to the answer.
@@ -170,6 +170,44 @@ def get_feedback(guess: str, answer: str) -> int:
 
     _feedback_cache[cache_key] = feedback_num
 
+    return feedback_num
+
+def get_feedback(guess: str, answer: str) -> int:
+    cache_key = (guess, answer)
+    if cache_key in _feedback_cache:
+        return _feedback_cache[cache_key]
+
+    length = len(guess)
+    feedback_num = 0
+
+    # Precompute character ordinals
+    guess_ords = tuple(ord_dict[c] for c in guess)
+    answer_ords = tuple(ord_dict[c] for c in answer)
+
+    # Use array for letter counts (faster than list)
+    answer_letter_counts = [0] * 26
+    for a_ord in answer_ords:
+        answer_letter_counts[a_ord] += 1
+
+    # First pass: mark greens and reduce counts
+    green_positions = []
+    for i in range(length):
+        g_ord = guess_ords[i]
+        a_ord = answer_ords[i]
+        if g_ord == a_ord:
+            feedback_num |= (2 << (2 * i))  # green
+            answer_letter_counts[g_ord] -= 1
+            green_positions.append(i)
+
+    # Second pass: mark yellows if letter exists in answer counts
+    for i in range(length):
+        if i not in green_positions:
+            g_ord = guess_ords[i]
+            if answer_letter_counts[g_ord] > 0:
+                feedback_num |= (1 << (2 * i))  # yellow
+                answer_letter_counts[g_ord] -= 1
+
+    _feedback_cache[cache_key] = feedback_num
     return feedback_num
 
 def format_feedback(feedback_num: int, length: int) -> str:
