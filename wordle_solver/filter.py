@@ -9,12 +9,12 @@ IMPOSSIBLE_REGARD_RANGE = range(0, 40)
 
 class Filter:
 
-    def __init__(self, greens: Optional[dict[int, str]] = None, yellows: Optional[dict[str, set[int]]] = None, greys: Optional[set[str]] = None, length: int = 5):
+    def __init__(self, greens: Optional[dict[str, set[int]]] = None, yellows: Optional[dict[str, set[int]]] = None, greys: Optional[set[str]] = None, length: int = 5):
         """
         Initializes the Filter with optional color maps and word length.
 
         Args:
-            greens (Optional[dict[int, str]], optional): Map of position to green letter. Defaults to None.
+            greens (Optional[dict[str, set[int]]], optional): Map of green letters to sets of positions. Defaults to None.
             yellows (Optional[dict[str, set[int]]], optional): Map of yellow letters to positions they cannot be in. Defaults to None.
             greys (Optional[set[str]], optional): Set of grey letters. Defaults to None.
             length (int, optional): Word length. Defaults to 5.
@@ -135,27 +135,36 @@ class Filter:
             # Check greys
             if any(char in self.greys for char in word):
                 continue
-            # Check greens
-            if any(word[pos] != letter for pos, letter in self.greens.items()):
+            # Check greens: for each letter, all positions must have that letter
+            green_valid = True
+            for letter, positions in self.greens.items():
+                if any(word[pos] != letter for pos in positions):
+                    green_valid = False
+                    break
+            if not green_valid:
                 continue
-            # Check yellows
-            valid = True
+            # Check yellows: letter must be in word, but not in any bad positions
+            yellow_valid = True
             for letter, bad_positions in self.yellows.items():
-                if letter not in word:
-                    valid = False
+                # Calculate required count as green positions + yellow forbidden positions
+                green_positions = self.greens.get(letter, set())
+                required_count = len(green_positions) + len(bad_positions)
+                if word.count(letter) < required_count:
+                    yellow_valid = False
                     break
                 if any(word[pos] == letter for pos in bad_positions):
-                    valid = False
+                    yellow_valid = False
                     break
-            if valid:
-                filtered.append(word)
+            if not yellow_valid:
+                continue
+            filtered.append(word)
         return filtered
 
     def update(self, guess: str, feedback: int) -> None:
         """
         Updates the Filter with a guess and its corresponding feedback.
 
-        The green letters are stored in a map of position to letter,
+        The green letters are stored in a map of letter to sets of positions,
         the yellow letters are stored in a map of letter to sets of positions they cannot be in,
         and the grey letters are stored in a set.
         The maps are updated based on the feedback.
@@ -165,7 +174,9 @@ class Filter:
         for i, char in enumerate(guess):
             digit = (feedback // (base ** i)) % base
             if digit == 2:  # green
-                self.greens[i] = char
+                if char not in self.greens:
+                    self.greens[char] = set()
+                self.greens[char].add(i)
                 if char in self.yellows:
                     if i in self.yellows[char]:
                         self.yellows[char].remove(i)
