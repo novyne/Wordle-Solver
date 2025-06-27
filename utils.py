@@ -1,16 +1,22 @@
 import argparse
+import atexit
+import importlib
 import os
 import sqlite3
-import threading
-import time
-import atexit
+
+import sys
 
 # Argument Parser
 parser = argparse.ArgumentParser()
 parser.add_argument("-l", "--length", help="Word length", type=int, default=5)
 parser.add_argument("-c", "--candidate-number", help="Number of candidates to return (-1 for all)", type=int, default=10)
 parser.add_argument("-w", "--wordlist", help="Wordlist to use (none defaults to all in directory)", type=str, default="all")
-args = parser.parse_args()
+
+if 'ipykernel' in sys.modules:
+    # Running inside Jupyter notebook, ignore argv
+    args = parser.parse_args(args=[])
+else:
+    args = parser.parse_args()
 
 def load_words_from_file(file: str) -> list[str]:
     """
@@ -112,12 +118,15 @@ atexit.register(conn.commit)
 
 _feedback_cache = {}
 
+ord_dict = {c: i for i, c in enumerate("abcdefghijklmnopqrstuvwxyz")}
+
 def get_feedback(guess: str, answer: str) -> int:
     """
-    Returns a single number representing feedback for the guess compared to the answer.
-    Each position is encoded as a base-3 digit:
-    0 = grey (x), 1 = yellow (y), 2 = green (g).
-    The number is constructed as sum of digit * 3^position.
+    Optimized version of get_feedback using bitwise operations and integer encoding.
+    Returns a single integer representing feedback for the guess compared to the answer.
+    Each position uses 2 bits:
+    00 = grey (x), 01 = yellow (y), 10 = green (g).
+    The integer is constructed by shifting bits accordingly.
 
     This version ensures the number of yellows and greens matches the answer's letter counts.
     """
@@ -126,33 +135,38 @@ def get_feedback(guess: str, answer: str) -> int:
     if cache_key in _feedback_cache:
         return _feedback_cache[cache_key]
 
-    base = 3
+    length = len(guess)
     feedback_num = 0
 
-    # Track counts of letters in answer and guess
-    answer_letter_counts = {}
-    for ch in answer:
-        answer_letter_counts[ch] = answer_letter_counts.get(ch, 0) + 1
+    guess_ords = tuple(ord_dict[c] for c in guess)
+    answer_ords = tuple(ord_dict[c] for c in answer)
+
+    # Use fixed-size arrays for letter counts (assuming ASCII lowercase letters)
+    answer_letter_counts = [0] * 26
+    for i in range(length):
+        answer_letter_counts[answer_ords[i]] += 1
+
+    feedback_digits = [0] * length
 
     # First pass: mark greens and reduce counts
-    feedback_digits = [0] * len(guess)
-    for i, char in enumerate(guess):
-        if char == answer[i]:
-            feedback_digits[i] = 2
-            answer_letter_counts[char] -= 1
+    for i in range(length):
+        g_char = guess[i]
+        a_char = answer[i]
+        if g_char == a_char:
+            feedback_digits[i] = 2  # green
+            answer_letter_counts[guess_ords[i]] -= 1
 
     # Second pass: mark yellows if letter exists in answer counts
-    for i, char in enumerate(guess):
+    for i in range(length):
         if feedback_digits[i] == 0:
-            if char in answer_letter_counts and answer_letter_counts[char] > 0:
-                feedback_digits[i] = 1
-                answer_letter_counts[char] -= 1
-            else:
-                feedback_digits[i] = 0
+            idx = guess_ords[i]
+            if answer_letter_counts[idx] > 0:
+                feedback_digits[i] = 1  # yellow
+                answer_letter_counts[idx] -= 1
 
-    # Construct feedback number
-    for i, digit in enumerate(feedback_digits):
-        feedback_num += digit * (base ** i)
+    # Construct feedback number using bitwise shifts (2 bits per position)
+    for i in range(length):
+        feedback_num |= (feedback_digits[i] << (2 * i))
 
     _feedback_cache[cache_key] = feedback_num
 
@@ -163,11 +177,10 @@ def format_feedback(feedback_num: int, length: int) -> str:
     Formats the feedback number back into a string of 'g', 'y', 'x' for printing.
     """
 
-    base = 3
     feedback_chars = []
-    for _ in range(length):
-        digit = feedback_num % base
-        feedback_num //= base
+    for i in range(length):
+        # Extract 2 bits per position
+        digit = (feedback_num >> (2 * i)) & 0b11
         if digit == 2:
             feedback_chars.append('g')
         elif digit == 1:
@@ -181,7 +194,6 @@ def intify_feedback(feedback: str) -> int:
     Converts a string of 'g', 'y', 'x' into an integer.
     """
 
-    base = 3
     feedback_num = 0
     for i, char in enumerate(feedback):
         if char == 'g':
@@ -190,5 +202,5 @@ def intify_feedback(feedback: str) -> int:
             digit = 1
         else:
             digit = 0
-        feedback_num += digit * (base ** i)
+        feedback_num |= (digit << (2 * i))
     return feedback_num

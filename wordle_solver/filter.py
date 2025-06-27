@@ -25,6 +25,10 @@ class Filter:
         self.greys = greys or set()
         self.length = length
 
+        # New attributes to track min and max counts of letters
+        self.min_counts = {}  # letter -> minimum count
+        self.max_counts = {}  # letter -> maximum count
+
     def candidates(self, words: list[str]) -> list[str]:
         """
         Returns a list of words that satisfy all constraints: no grey letters,
@@ -152,6 +156,26 @@ class Filter:
                     break
             if not yellow_valid:
                 continue
+
+            # New check: enforce min and max counts
+            letter_counts = {}
+            for c in word:
+                letter_counts[c] = letter_counts.get(c, 0) + 1
+
+            count_valid = True
+            for letter, min_count in self.min_counts.items():
+                if letter_counts.get(letter, 0) < min_count:
+                    count_valid = False
+                    break
+            if not count_valid:
+                continue
+            for letter, max_count in self.max_counts.items():
+                if letter_counts.get(letter, 0) > max_count:
+                    count_valid = False
+                    break
+            if not count_valid:
+                continue
+
             filtered.append(word)
         return filtered
 
@@ -165,18 +189,31 @@ class Filter:
         The maps are updated based on the feedback.
         """
 
-        base = 3
         # Collect yellow positions per letter in current guess
         current_yellow_positions_map = {}
         for i, char in enumerate(guess):
-            digit = (feedback // (base ** i)) % base
+            digit = (feedback >> (2 * i)) & 0b11
             if digit == 1:  # yellow
                 if char not in current_yellow_positions_map:
                     current_yellow_positions_map[char] = set()
                 current_yellow_positions_map[char].add(i)
 
+        # Count occurrences of each letter in guess by feedback type
+        green_counts = {}
+        yellow_counts = {}
+        grey_counts = {}
+
         for i, char in enumerate(guess):
-            digit = (feedback // (base ** i)) % base
+            digit = (feedback >> (2 * i)) & 0b11
+            if digit == 2:  # green
+                green_counts[char] = green_counts.get(char, 0) + 1
+            elif digit == 1:  # yellow
+                yellow_counts[char] = yellow_counts.get(char, 0) + 1
+            elif digit == 0:  # grey
+                grey_counts[char] = grey_counts.get(char, 0) + 1
+
+        for i, char in enumerate(guess):
+            digit = (feedback >> (2 * i)) & 0b11
             if digit == 2:  # green
                 if char not in self.greens:
                     self.greens[char] = set()
@@ -204,5 +241,31 @@ class Filter:
                 if char in self.greys:
                     self.greys.remove(char)
             elif digit == 0:  # grey
+                # Only add to greys if letter not green or yellow anywhere in guess
                 if char not in self.yellows and char not in self.greens:
                     self.greys.add(char)
+
+        # Update min_counts and max_counts based on feedback counts
+        for char in set(guess):
+            green = green_counts.get(char, 0)
+            yellow = yellow_counts.get(char, 0)
+            grey = grey_counts.get(char, 0)
+
+            min_count = green + yellow
+            # If letter has any grey occurrences, max count is min_count (no more than green+yellow)
+            if grey > 0:
+                max_count = min_count
+            else:
+                max_count = self.length  # no upper bound
+
+            # Update min_counts
+            if char in self.min_counts:
+                self.min_counts[char] = max(self.min_counts[char], min_count)
+            else:
+                self.min_counts[char] = min_count
+
+            # Update max_counts
+            if char in self.max_counts:
+                self.max_counts[char] = min(self.max_counts[char], max_count)
+            else:
+                self.max_counts[char] = max_count

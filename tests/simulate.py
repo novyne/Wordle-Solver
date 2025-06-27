@@ -1,5 +1,7 @@
 import random as rnd
 import threading
+import signal
+import sys
 
 from typing import Tuple, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -119,8 +121,8 @@ def run_simulation(num_games: int = 1000, max_workers: int = 8) -> float:
         float: Performance percentage of the bot.
     """
     
-    if "entropy" in SCORER.__name__.lower():
-        max_workers = 1
+    # if "entropy" in SCORER.__name__.lower():
+    #     max_workers = 1
 
     total_guesses = 0
     wins = 0
@@ -241,6 +243,13 @@ def calculate_performance(wins: int, total_games: int, total_guesses: int, max_g
     # Weighted performance score: 60% win rate, 40% guess efficiency
     performance = (0.6 * win_rate + 0.4 * guess_score) * 100
     return performance
+
+def handle_sigterm(signum, frame):
+    with PRINT_LOCK:
+        print("\nReceived termination signal (SIGTERM). Exiting gracefully...")
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, handle_sigterm)
 
 if __name__ == "__main__":
     performance = run_simulation(args.game_number)
