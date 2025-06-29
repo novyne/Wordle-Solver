@@ -102,10 +102,10 @@ def main():
             print(f"The word is: {candidates[0]}")
             return
         
-        candidates = scorer(candidates).best(args.candidate_number, show_progress=True)
+        best_candidates = scorer(candidates).best(args.candidate_number, show_progress=True)
 
-        print(f"\nHere are {len(candidates)} possible candidates you can try:")
-        print(format_candidates(candidates))
+        print(f"\nHere are {len(best_candidates)} / {len(candidates)} possible candidates you can try:")
+        print(format_candidates(best_candidates))
 
 if __name__ == "__main__":
     main()

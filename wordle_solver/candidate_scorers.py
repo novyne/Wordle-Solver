@@ -25,20 +25,20 @@ def _best_with_progress(scorer, n=1, show_progress=False, description="Calculati
             return [candidate for candidate, score in heapq.nlargest(n, ((c, func(c)) for c in candidates), key=lambda x: x[1])]
     else:
         scores = []
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
-        ) as progress:
-            task = progress.add_task(f"[green]{description}", total=len(candidates))
-            for i, candidate in enumerate(candidates):
-                scores.append((candidate, func(candidate)))
-                if i % 10 == 0:
-                    progress.update(task, advance=10)
-            progress.update(task, completed=len(candidates))
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        TextColumn("{task.fields[current_word]}", justify="right"),
+    ) as progress:
+        task = progress.add_task(f"[green]{description}", total=len(candidates), current_word="")
+        for i, candidate in enumerate(candidates):
+            scores.append((candidate, func(candidate)))
+            progress.update(task, advance=1, current_word=f"[bright_blue]{candidate}")
+        progress.update(task, completed=len(candidates))
 
         if n == 1:
             return max(scores, key=lambda x: x[1])[0]

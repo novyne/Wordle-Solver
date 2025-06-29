@@ -5,9 +5,6 @@ from wordle_solver import candidate_scorers as cs
 from utils import WORDS
 from tests.simulate import play_single_game
 
-import cProfile
-
-
 scorers = [cls for name, cls in inspect.getmembers(cs, inspect.isclass) if cls.__module__ == cs.__name__ and cls.TESTING_ENABLED]
 
 def test_scorer(scorer):
@@ -26,6 +23,5 @@ def main() -> None:
         test_scorer(scorer)
 
 if __name__ == "__main__":
-    # answer = rnd.choice(WORDS)
-    answer = 'spain'
+    answer = rnd.choice(WORDS)
     main()
