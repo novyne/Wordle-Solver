@@ -5,7 +5,7 @@ from wordle_solver import candidate_scorers as cs
 from wordle_solver.filter import Filter
 from utils import WORDS, get_feedback, format_feedback
 
-SCORER = cs.EntropyScorer
+SCORER = cs.OptimisedEntropyScorer
 
 guess = "soare"
 answer = rnd.choice(WORDS)

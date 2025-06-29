@@ -186,7 +186,6 @@ def get_feedback(guess: str, answer: str) -> int:
             if guess[i] in answer_letter_counts and answer_letter_counts[guess[i]] > 0:
                 feedback_num |= 1 << (2 * i)  # yellow
                 answer_letter_counts[guess[i]] -= 1
-            # else grey (0), do nothing
 
     _feedback_cache[cache_key] = feedback_num
 
@@ -210,4 +209,5 @@ def format_feedback(feedback_num: int) -> str:
     return "".join(feedback_chars)
 
 def intify_feedback(feedback: str) -> int:
-    return int(feedback.replace("g", "10").replace("y", "01").replace("x", "00"), 2)
+    reversed_feedback = feedback[::-1]
+    return int(reversed_feedback.replace("g", "10").replace("y", "01").replace("x", "00"), 2)

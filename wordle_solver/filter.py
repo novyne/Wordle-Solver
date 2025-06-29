@@ -269,3 +269,6 @@ class Filter:
                 self.max_counts[char] = min(self.max_counts[char], max_count)
             else:
                 self.max_counts[char] = max_count
+        
+        # Remove all grey letters that are in greens or yellows
+        self.greys = self.greys.difference(self.greens.keys()).difference(self.yellows.keys())

@@ -71,7 +71,7 @@ def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) ->
         feedback = get_feedback(guess, answer)
 
         if display_guesses:
-            print(format_feedback(feedback, len(guess)))
+            print(format_feedback(feedback))
 
         filter.update(guess, feedback)
 

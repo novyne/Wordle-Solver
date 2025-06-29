@@ -1,4 +1,15 @@
+import hashlib
 import heapq
+import math
+import multiprocessing
+import os
+import sqlite3
+import threading
+
+from collections import defaultdict
+from functools import lru_cache
+from typing import List, Union
+
 from utils import get_feedback, WORDS
 
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn
@@ -55,7 +66,7 @@ class IntuitiveScorer:
     encouraging guesses that can eliminate more possibilities.
     """
 
-    TESTING_ENABLED = True
+    TESTING_ENABLED = False
     STRICT_CANDIDATES = False
     FIRST_GUESS = "tares"
 
@@ -229,7 +240,6 @@ class ReductionScorer:
     def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
         return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Reduction scores...")
 
-
 class EntropyScorer:
 
     """
@@ -249,11 +259,6 @@ class EntropyScorer:
         return (candidate, answer, get_feedback(candidate, answer))
 
     def __init__(self, candidates: list[str]):
-        import hashlib
-        import threading
-        import sqlite3
-        import os
-        import multiprocessing
 
         self.candidates = candidates
         self._entropy_cache = {}
@@ -285,13 +290,20 @@ class EntropyScorer:
     def precompute_feedback_cache(self):
         """
         Precompute and cache feedback for all candidate-answer pairs using multiprocessing to speed up entropy calculations.
+        Optimized to reduce multiprocessing overhead by chunking tasks and minimizing pickling.
         """
-        import multiprocessing
 
         pairs = [(candidate, answer) for candidate in self.candidates for answer in self.candidates]
 
-        with multiprocessing.Pool() as pool:
-            results = pool.map(self._compute_feedback_for_entropy, pairs)
+        def chunked_map(func, data, chunk_size=1000):
+            results = []
+            with multiprocessing.Pool() as pool:
+                for i in range(0, len(data), chunk_size):
+                    chunk = data[i:i+chunk_size]
+                    results.extend(pool.map(func, chunk))
+            return results
+
+        results = chunked_map(self._compute_feedback_for_entropy, pairs, chunk_size=5000)
 
         for candidate, answer, feedback in results:
             self._feedback_cache[(candidate, answer)] = feedback
@@ -316,9 +328,6 @@ class EntropyScorer:
         Returns:
             float: The calculated entropy value representing expected information gain.
         """
-
-        import math
-        from collections import defaultdict
 
         cache_key = (candidate, self._candidate_set_hash)
         if cache_key in self._entropy_cache:
@@ -357,7 +366,6 @@ class EntropyScorer:
                     INSERT OR REPLACE INTO entropy (guess, answer, entropy, candidate_set_hash)
                     VALUES (?, ?, ?, ?)
                 """, (candidate, "", e, self._candidate_set_hash))
-                # Commit deferred to reduce overhead
             except Exception as ex:
                 print(f"Error writing entropy to DB: {ex}")
             cursor.close()
@@ -377,6 +385,184 @@ class EntropyScorer:
         best = _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Entropy scores...", candidates=WORDS, func=self.entropy)
         self._conn.commit()
         return best
+    
+class OptimisedEntropyScorer:
+    """
+    Highly optimized entropy scorer with improved caching, reduced DB operations,
+    and better multiprocessing efficiency for calculating word entropy in word games.
+    
+    Features:
+    - Precomputed feedback cache with efficient multiprocessing
+    - LRU caching for frequently used entropy calculations
+    - Batched DB operations with WAL mode for concurrency
+    - Reduced memory footprint with optimized data structures
+    - Thread-safe operations with proper locking
+    - Better error handling and resource management
+    """
+
+    TESTING_ENABLED = True
+    STRICT_CANDIDATES = True
+    FIRST_GUESS = "soare"
+
+    def __init__(self, candidates: List[str]):
+        """Initialize with a list of candidate words."""
+        self.candidates = sorted(candidates)  # Sorting for consistent hashing
+        self._feedback_cache = {}
+        self._db_lock = threading.Lock()
+        self._init_database()
+        self._candidate_set_hash = self._hash_candidate_set()
+        self._precompute_feedback_cache()
+
+    def _init_database(self):
+        """Initialize the SQLite database connection with optimized settings."""
+        feedback_dir = os.path.join(os.getcwd(), "feedback")
+        os.makedirs(feedback_dir, exist_ok=True)
+        
+        db_path = os.path.join(feedback_dir, "feedback.db")
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL;")
+        self._conn.execute("PRAGMA synchronous=NORMAL;")
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS entropy (
+                guess TEXT,
+                answer TEXT,
+                entropy REAL,
+                candidate_set_hash TEXT,
+                PRIMARY KEY (guess, answer, candidate_set_hash)
+            );
+        """)
+        self._conn.commit()
+
+    def _hash_candidate_set(self) -> str:
+        """Generate a consistent hash for the current candidate set."""
+        candidate_str = ",".join(self.candidates)
+        return hashlib.sha256(candidate_str.encode()).hexdigest()
+
+    @staticmethod
+    def _compute_feedback_pair(args):
+        """Static method for multiprocessing feedback calculations."""
+        candidate, answer = args
+        return (candidate, answer, get_feedback(candidate, answer))
+
+    def _precompute_feedback_cache(self):
+        """Precompute feedback for all candidate pairs using efficient multiprocessing."""
+        pairs = [(c, a) for c in self.candidates for a in self.candidates]
+        
+        # Process in chunks to balance memory and CPU usage
+        chunk_size = min(5000, max(100, len(pairs) // (multiprocessing.cpu_count() * 2)))
+        
+        with multiprocessing.Pool() as pool:
+            results = pool.imap_unordered(
+                self._compute_feedback_pair,
+                pairs,
+                chunksize=chunk_size
+            )
+            for candidate, answer, feedback in results:
+                self._feedback_cache[(candidate, answer)] = feedback
+
+    @lru_cache(maxsize=5000)
+    def entropy(self, candidate: str) -> float:
+        """
+        Calculate the entropy of a candidate word with caching at multiple levels.
+        
+        Uses:
+        - LRU in-memory cache for frequent candidates
+        - Persistent SQLite cache for long-term storage
+        - Precomputed feedback cache for fast pattern calculation
+        """
+        # Try to get from memory cache first
+        cache_key = (candidate, self._candidate_set_hash)
+        
+        # Check database cache
+        with self._db_lock:
+            cursor = self._conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT entropy FROM entropy 
+                    WHERE guess=? AND answer=? AND candidate_set_hash=?
+                """, (candidate, "", self._candidate_set_hash))
+                if (row := cursor.fetchone()):
+                    return row[0]
+            except Exception as e:
+                print(f"DB read error: {e}")
+            finally:
+                cursor.close()
+
+        # Calculate entropy from feedback patterns
+        patterns = defaultdict(int)
+        for answer in self.candidates:
+            feedback = self._feedback_cache.get((candidate, answer))
+            if feedback is None:
+                feedback = get_feedback(candidate, answer)
+                self._feedback_cache[(candidate, answer)] = feedback
+            patterns[feedback] += 1
+
+        total = len(self.candidates)
+        entropy = sum(-(count/total) * math.log2(count/total) for count in patterns.values())
+
+        # Cache result in database
+        with self._db_lock:
+            cursor = self._conn.cursor()
+            try:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO entropy 
+                    (guess, answer, entropy, candidate_set_hash)
+                    VALUES (?, ?, ?, ?)
+                """, (candidate, "", entropy, self._candidate_set_hash))
+                self._conn.commit()
+            except Exception as e:
+                print(f"DB write error: {e}")
+            finally:
+                cursor.close()
+
+        return entropy
+
+    def best(self, n: int = 1, show_progress: bool = False) -> Union[List[str], str]:
+        """
+        Find the top n candidates with highest entropy.
+        
+        Args:
+            n: Number of top candidates to return
+            show_progress: Whether to display progress information
+            
+        Returns:
+            List of top candidates or single string if n=1
+        """
+        best_candidates = _best_with_progress(
+            self,
+            n=n,
+            show_progress=show_progress,
+            description="Calculating Entropy scores...",
+            candidates=WORDS,
+            func=self.entropy
+        )
+        
+        # Ensure DB changes are committed
+        with self._db_lock:
+            self._conn.commit()
+            
+        return best_candidates
+
+    def __enter__(self):
+        """Support context manager protocol for resource management."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Clean up resources when exiting context."""
+        self.close()
+
+    def close(self):
+        """Explicit cleanup method for resource management."""
+        with self._db_lock:
+            self._conn.commit()
+            self._conn.close()
+        # Clear caches
+        self.entropy.cache_clear()
+        self._feedback_cache.clear()
+
+    def __del__(self):
+        """Destructor for fallback cleanup."""
+        self.close()
 
 class FastEntropyScorer:
 
