@@ -3,8 +3,9 @@ import atexit
 import importlib
 import os
 import sqlite3
-
 import sys
+
+from collections import Counter
 
 # Argument Parser
 parser = argparse.ArgumentParser()
@@ -85,20 +86,6 @@ DB_PATH = os.path.join(feedback_dir, "feedback.db")
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = conn.cursor()
 
-# Drop old tables if exist (to update schema)
-# cursor.execute("DROP TABLE IF EXISTS feedback")
-# cursor.execute("DROP TABLE IF EXISTS entropy")
-
-# Create table for feedback
-# cursor.execute("""
-# CREATE TABLE IF NOT EXISTS feedback (
-#     guess TEXT NOT NULL,
-#     answer TEXT,
-#     feedback_num INTEGER,
-#     PRIMARY KEY (guess, answer)
-# )
-# """)
-
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS entropy (
     guess TEXT NOT NULL,
@@ -120,103 +107,98 @@ _feedback_cache = {}
 
 ord_dict = {c: i for i, c in enumerate("abcdefghijklmnopqrstuvwxyz")}
 
-def old_get_feedback(guess: str, answer: str) -> int:
+def get_feedback_old(guess: str, answer: str) -> int:
     """
-    Optimized version of get_feedback using bitwise operations and integer encoding.
     Returns a single integer representing feedback for the guess compared to the answer.
     Each position uses 2 bits:
     00 = grey (x), 01 = yellow (y), 10 = green (g).
     The integer is constructed by shifting bits accordingly.
-
-    This version ensures the number of yellows and greens matches the answer's letter counts.
     """
 
     cache_key = (guess, answer)
     if cache_key in _feedback_cache:
         return _feedback_cache[cache_key]
 
-    length = len(guess)
     feedback_num = 0
+    length = len(guess)
+    ord_dict_local = ord_dict
 
-    guess_ords = tuple(ord_dict[c] for c in guess)
-    answer_ords = tuple(ord_dict[c] for c in answer)
+    guess_ords = [ord_dict_local[c] for c in guess]
+    answer_ords = [ord_dict_local[c] for c in answer]
 
-    # Use fixed-size arrays for letter counts (assuming ASCII lowercase letters)
-    answer_letter_counts = [0] * 26
+    answer_counts = Counter(answer_ords)
+
+    green_mask = 0
+    # First pass: mark greens
     for i in range(length):
-        answer_letter_counts[answer_ords[i]] += 1
+        g_ord = guess_ords[i]
+        if g_ord == answer_ords[i]:
+            feedback_num |= 2 << (2 * i)  # green
+            answer_counts[g_ord] -= 1
+            green_mask |= 1 << i
 
-    feedback_digits = [0] * length
-
-    # First pass: mark greens and reduce counts
+    # Second pass: mark yellows
     for i in range(length):
-        g_char = guess[i]
-        a_char = answer[i]
-        if g_char == a_char:
-            feedback_digits[i] = 2  # green
-            answer_letter_counts[guess_ords[i]] -= 1
-
-    # Second pass: mark yellows if letter exists in answer counts
-    for i in range(length):
-        if feedback_digits[i] == 0:
-            idx = guess_ords[i]
-            if answer_letter_counts[idx] > 0:
-                feedback_digits[i] = 1  # yellow
-                answer_letter_counts[idx] -= 1
-
-    # Construct feedback number using bitwise shifts (2 bits per position)
-    for i in range(length):
-        feedback_num |= (feedback_digits[i] << (2 * i))
+        if not (green_mask & (1 << i)):
+            g_ord = guess_ords[i]
+            if answer_counts[g_ord] > 0:
+                feedback_num |= 1 << (2 * i)  # yellow
+                answer_counts[g_ord] -= 1
 
     _feedback_cache[cache_key] = feedback_num
-
     return feedback_num
 
 def get_feedback(guess: str, answer: str) -> int:
+    """
+    Old implementation of get_feedback with the same bit system.
+    Implements Wordle feedback logic from scratch, ensuring correct handling of repeated letters.
+    2 bits per position: 00=grey, 01=yellow, 10=green.
+    """
+
     cache_key = (guess, answer)
     if cache_key in _feedback_cache:
         return _feedback_cache[cache_key]
 
-    length = len(guess)
     feedback_num = 0
+    length = len(guess)
 
-    # Precompute character ordinals
-    guess_ords = tuple(ord_dict[c] for c in guess)
-    answer_ords = tuple(ord_dict[c] for c in answer)
+    # Count letters in answer manually without Counter
+    answer_letter_counts = {}
+    for ch in answer:
+        if ch in answer_letter_counts:
+            answer_letter_counts[ch] += 1
+        else:
+            answer_letter_counts[ch] = 1
 
-    # Use array for letter counts (faster than list)
-    answer_letter_counts = [0] * 26
-    for a_ord in answer_ords:
-        answer_letter_counts[a_ord] += 1
+    # Track which positions are green
+    green_positions = [False] * length
 
     # First pass: mark greens and reduce counts
-    green_positions = []
     for i in range(length):
-        g_ord = guess_ords[i]
-        a_ord = answer_ords[i]
-        if g_ord == a_ord:
-            feedback_num |= (2 << (2 * i))  # green
-            answer_letter_counts[g_ord] -= 1
-            green_positions.append(i)
+        if guess[i] == answer[i]:
+            feedback_num |= 2 << (2 * i)  # green
+            answer_letter_counts[guess[i]] -= 1
+            green_positions[i] = True
 
-    # Second pass: mark yellows if letter exists in answer counts
+    # Second pass: mark yellows
     for i in range(length):
-        if i not in green_positions:
-            g_ord = guess_ords[i]
-            if answer_letter_counts[g_ord] > 0:
-                feedback_num |= (1 << (2 * i))  # yellow
-                answer_letter_counts[g_ord] -= 1
+        if not green_positions[i]:
+            if guess[i] in answer_letter_counts and answer_letter_counts[guess[i]] > 0:
+                feedback_num |= 1 << (2 * i)  # yellow
+                answer_letter_counts[guess[i]] -= 1
+            # else grey (0), do nothing
 
     _feedback_cache[cache_key] = feedback_num
+
     return feedback_num
 
-def format_feedback(feedback_num: int, length: int) -> str:
+def format_feedback(feedback_num: int) -> str:
     """
     Formats the feedback number back into a string of 'g', 'y', 'x' for printing.
     """
 
     feedback_chars = []
-    for i in range(length):
+    for i in range(args.length):
         # Extract 2 bits per position
         digit = (feedback_num >> (2 * i)) & 0b11
         if digit == 2:
@@ -228,17 +210,4 @@ def format_feedback(feedback_num: int, length: int) -> str:
     return "".join(feedback_chars)
 
 def intify_feedback(feedback: str) -> int:
-    """
-    Converts a string of 'g', 'y', 'x' into an integer.
-    """
-
-    feedback_num = 0
-    for i, char in enumerate(feedback):
-        if char == 'g':
-            digit = 2
-        elif char == 'y':
-            digit = 1
-        else:
-            digit = 0
-        feedback_num |= (digit << (2 * i))
-    return feedback_num
+    return int(feedback.replace("g", "10").replace("y", "01").replace("x", "00"), 2)

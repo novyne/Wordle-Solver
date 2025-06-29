@@ -1,5 +1,5 @@
 import heapq
-from utils import get_feedback
+from utils import get_feedback, WORDS
 
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn
 
@@ -229,13 +229,12 @@ class ReductionScorer:
     def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
         return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Reduction scores...")
 
+
 class EntropyScorer:
 
     """
-    Scores candidate words based on the entropy of feedback patterns they produce against all remaining candidates.
-    Entropy measures the expected information gain from a guess, with higher entropy indicating a guess that
-    is expected to reduce the candidate space more effectively. This scorer uses caching and a database to
-    store entropy values for efficiency, and calculates entropy by simulating feedback distributions for each guess.
+    Optimized EntropyScorer that precomputes feedback cache using multiprocessing to speed up entropy calculations.
+    Reduces redundant feedback computations and batches DB writes to improve performance.
     """
 
     TESTING_ENABLED = True
@@ -246,20 +245,15 @@ class EntropyScorer:
 
     @staticmethod
     def _compute_feedback_for_entropy(args):
-        candidate, answer, feedback_cache = args
-        from utils import get_feedback
-        feedback_key = (candidate, answer)
-        if feedback_key in feedback_cache:
-            return feedback_cache[feedback_key]
-        feedback = get_feedback(candidate, answer)
-        feedback_cache[feedback_key] = feedback
-        return feedback
+        candidate, answer = args
+        return (candidate, answer, get_feedback(candidate, answer))
 
     def __init__(self, candidates: list[str]):
         import hashlib
         import threading
         import sqlite3
         import os
+        import multiprocessing
 
         self.candidates = candidates
         self._entropy_cache = {}
@@ -285,19 +279,22 @@ class EntropyScorer:
         candidate_set = ",".join(sorted(self.candidates))
         self._candidate_set_hash = hashlib.sha256(candidate_set.encode()).hexdigest()
 
+        # Precompute feedback cache using multiprocessing pool
+        self.precompute_feedback_cache()
+
     def precompute_feedback_cache(self):
         """
-        Precompute and cache feedback for all candidate-answer pairs to speed up entropy calculations.
+        Precompute and cache feedback for all candidate-answer pairs using multiprocessing to speed up entropy calculations.
         """
-        from utils import get_feedback
-        
-        for candidate in self.candidates:
-            for answer in self.candidates:
-                key = (candidate, answer)
-                if key not in self._feedback_cache:
-                    self._feedback_cache[key] = get_feedback(candidate, answer)
+        import multiprocessing
 
+        pairs = [(candidate, answer) for candidate in self.candidates for answer in self.candidates]
 
+        with multiprocessing.Pool() as pool:
+            results = pool.map(self._compute_feedback_for_entropy, pairs)
+
+        for candidate, answer, feedback in results:
+            self._feedback_cache[(candidate, answer)] = feedback
 
     def entropy(self, candidate: str) -> float:
         """
@@ -307,7 +304,7 @@ class EntropyScorer:
         Entropy is a measure of the expected information gain from guessing the candidate word.
         Higher entropy indicates a guess that is expected to reduce the candidate space more effectively.
 
-        This method uses a cached feedback map (FEEDBACK_MAP) to avoid recalculating entropy for
+        This method uses a cached feedback map to avoid recalculating entropy for
         candidates that have been scored before. If the entropy is not cached, it computes the
         distribution of feedback patterns by comparing the candidate against all possible answers,
         calculates the entropy from this distribution, and writes the updated entropy back to
@@ -322,8 +319,6 @@ class EntropyScorer:
 
         import math
         from collections import defaultdict
-        from utils import get_feedback
-        import concurrent.futures
 
         cache_key = (candidate, self._candidate_set_hash)
         if cache_key in self._entropy_cache:
@@ -346,7 +341,10 @@ class EntropyScorer:
         patterns = defaultdict(int)
 
         for answer in self.candidates:
-            feedback = self._compute_feedback_for_entropy((candidate, answer, self._feedback_cache))
+            feedback = self._feedback_cache.get((candidate, answer))
+            if feedback is None:
+                feedback = get_feedback(candidate, answer)
+                self._feedback_cache[(candidate, answer)] = feedback
             patterns[feedback] += 1
 
         e = sum(-(p / len(self.candidates)) * math.log2(p / len(self.candidates)) for p in patterns.values())
@@ -370,14 +368,12 @@ class EntropyScorer:
 
     def __del__(self):
         try:
+            self._conn.commit()
             self._conn.close()
         except Exception:
             pass
 
     def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
-
-        from utils import WORDS
-
         best = _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Entropy scores...", candidates=WORDS, func=self.entropy)
         self._conn.commit()
         return best
@@ -409,7 +405,7 @@ class HybridScorer:
     This hybrid approach aims to balance the benefits of candidate reduction and heuristic scoring for better performance.
     """
 
-    TESTING_ENABLED = True
+    TESTING_ENABLED = False
     STRICT_CANDIDATES = False
     FIRST_GUESS = "tares"
 

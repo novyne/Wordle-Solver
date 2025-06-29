@@ -76,7 +76,7 @@ def play_single_game(answer: str, scorer=SCORER, display_guesses: bool=False) ->
         filter.update(guess, feedback)
 
         # Stop if guesses exceed a reasonable upper limit to avoid infinite loops
-        if guesses > MAX_GUESSES * 3:
+        if guesses > MAX_GUESSES * 2:
             return False, guesses
 
 def generate_stats_table(num_games, games_played, wins, total_guesses, guess_distribution, example_words):
