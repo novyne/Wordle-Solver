@@ -1,11 +1,8 @@
 import argparse
 import atexit
-import importlib
 import os
 import sqlite3
 import sys
-
-from collections import Counter
 
 # Argument Parser
 parser = argparse.ArgumentParser()

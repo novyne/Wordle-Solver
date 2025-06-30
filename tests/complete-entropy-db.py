@@ -15,6 +15,8 @@ SAMPLES = len(WORDS)
 words = rnd.sample(WORDS, SAMPLES)
 print(f"Reduced words to {SAMPLES} / {len(WORDS)}.\n")
 
+DEPTH = 1
+
 def get_patterns(guess: str, answers: list[str]) -> set[int]:
     """
     Returns a list of patterns for the given guess, comparing it against every answer.
@@ -42,7 +44,7 @@ def complete_entropy(filter: Filter, depth: int) -> None:
         return
     
     # Get the best guess to use
-    if depth == args.depth:
+    if depth == DEPTH:
         best_guess = scorer.FIRST_GUESS
     else:
         best_guess = scorer(filter.candidates(words)).best(show_progress=True)
@@ -62,4 +64,4 @@ def complete_entropy(filter: Filter, depth: int) -> None:
 
         complete_entropy(new_filter, depth - 1)
 
-complete_entropy(Filter(), args.depth)
+complete_entropy(Filter(), DEPTH)
