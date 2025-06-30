@@ -50,6 +50,7 @@ def complete_entropy(filter: Filter, depth: int) -> None:
     # Update a filter with all possible patterns
     answers = filter.strict_candidates(words)
     patterns = get_patterns(best_guess, answers)
+    patterns = sorted(list(patterns))
     print(f"Obtained {len(patterns)} patterns for {best_guess}.")
 
     # Create a new filter for each pattern to simulate every response to the best guess

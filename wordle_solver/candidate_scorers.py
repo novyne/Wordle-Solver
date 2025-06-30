@@ -3,6 +3,7 @@ import heapq
 import math
 import multiprocessing
 import os
+import signal
 import sqlite3
 import threading
 
@@ -297,10 +298,20 @@ class EntropyScorer:
 
         def chunked_map(func, data, chunk_size=1000):
             results = []
-            with multiprocessing.Pool() as pool:
-                for i in range(0, len(data), chunk_size):
-                    chunk = data[i:i+chunk_size]
-                    results.extend(pool.map(func, chunk))
+            try:
+                with multiprocessing.Pool() as pool:
+                    for i in range(0, len(data), chunk_size):
+                        chunk = data[i:i+chunk_size]
+                        results.extend(pool.map(func, chunk))
+            except Exception as e:
+                print(f"Exception in multiprocessing pool: {e}")
+                with self._db_lock:
+                    try:
+                        self._conn.commit()
+                        self._conn.close()
+                    except Exception as ex:
+                        print(f"Error during DB cleanup after multiprocessing exception: {ex}")
+                raise
             return results
 
         results = chunked_map(self._compute_feedback_for_entropy, pairs, chunk_size=5000)
@@ -382,9 +393,34 @@ class EntropyScorer:
             pass
 
     def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
-        best = _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Entropy scores...", candidates=WORDS, func=self.entropy)
-        self._conn.commit()
-        return best
+        try:
+            best = _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Entropy scores...", candidates=WORDS, func=self.entropy)
+            self._conn.commit()
+            return best
+        except Exception as e:
+            print(f"Exception in best(): {e}")
+            print("Terminated")
+            with self._db_lock:
+                self._conn.commit()
+                self._conn.close()
+            raise
+
+    def _handle_termination(self, signum, frame):
+        print(f"Received termination signal ({signum}). Committing and closing DB.")
+        with self._db_lock:
+            try:
+                self._conn.commit()
+                self._conn.close()
+            except Exception as e:
+                print(f"Error during DB cleanup on termination: {e}")
+        print("Terminated")
+
+    def __del__(self):
+        try:
+            self._conn.commit()
+            self._conn.close()
+        except Exception:
+            pass
     
 class OptimisedEntropyScorer:
     """
@@ -411,7 +447,8 @@ class OptimisedEntropyScorer:
         self._db_lock = threading.Lock()
         self._init_database()
         self._candidate_set_hash = self._hash_candidate_set()
-        self._precompute_feedback_cache()
+        self._precompute_thread = threading.Thread(target=self._precompute_feedback_cache, daemon=True)
+        self._precompute_thread.start()
 
     def _init_database(self):
         """Initialize the SQLite database connection with optimized settings."""
@@ -446,19 +483,37 @@ class OptimisedEntropyScorer:
 
     def _precompute_feedback_cache(self):
         """Precompute feedback for all candidate pairs using efficient multiprocessing."""
-        pairs = [(c, a) for c in self.candidates for a in self.candidates]
+        # Use a generator expression instead of a full list to reduce startup time
+        def pair_generator():
+            for c in self.candidates:
+                for a in self.candidates:
+                    yield (c, a)
+        pairs = pair_generator()
         
         # Process in chunks to balance memory and CPU usage
-        chunk_size = min(5000, max(100, len(pairs) // (multiprocessing.cpu_count() * 2)))
+        chunk_size = 100
         
-        with multiprocessing.Pool() as pool:
-            results = pool.imap_unordered(
-                self._compute_feedback_pair,
-                pairs,
-                chunksize=chunk_size
-            )
-            for candidate, answer, feedback in results:
-                self._feedback_cache[(candidate, answer)] = feedback
+        try:
+            with multiprocessing.Pool() as pool:
+                results = pool.imap_unordered(
+                    self._compute_feedback_pair,
+                    pairs,
+                    chunksize=chunk_size
+                )
+                # Collect results in a list first
+                collected_results = list(results)
+                # Update the feedback cache after all results are collected
+                for candidate, answer, feedback in collected_results:
+                    self._feedback_cache[(candidate, answer)] = feedback
+        except Exception as e:
+            print(f"Exception in multiprocessing pool: {e}")
+            with self._db_lock:
+                try:
+                    self._conn.commit()
+                    self._conn.close()
+                except Exception as ex:
+                    print(f"Error during DB cleanup after multiprocessing exception: {ex}")
+            raise
 
     @lru_cache(maxsize=5000)
     def entropy(self, candidate: str) -> float:
@@ -491,14 +546,17 @@ class OptimisedEntropyScorer:
         # Calculate entropy from feedback patterns
         patterns = defaultdict(int)
         for answer in self.candidates:
-            feedback = self._feedback_cache.get((candidate, answer))
+            with threading.Lock():
+                feedback = self._feedback_cache.get((candidate, answer))
             if feedback is None:
                 feedback = get_feedback(candidate, answer)
-                self._feedback_cache[(candidate, answer)] = feedback
+                with threading.Lock():
+                    self._feedback_cache[(candidate, answer)] = feedback
             patterns[feedback] += 1
 
         total = len(self.candidates)
-        entropy = sum(-(count/total) * math.log2(count/total) for count in patterns.values())
+        entropy = -sum(count * math.log2(count/total) for count in patterns.values())
+        entropy /= total
 
         # Cache result in database
         with self._db_lock:
@@ -554,6 +612,7 @@ class OptimisedEntropyScorer:
     def close(self):
         """Explicit cleanup method for resource management."""
         with self._db_lock:
+            print("Committing DB connection...")
             self._conn.commit()
             self._conn.close()
         # Clear caches
@@ -579,7 +638,7 @@ class FastEntropyScorer:
         self.candidates = candidates
 
     def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
-        es = EntropyScorer(self.candidates)
+        es = OptimisedEntropyScorer(self.candidates)
         best = _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Fast Entropy scores...", func=es.entropy)
         es._conn.commit()
         return best

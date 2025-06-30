@@ -107,50 +107,8 @@ _feedback_cache = {}
 
 ord_dict = {c: i for i, c in enumerate("abcdefghijklmnopqrstuvwxyz")}
 
-def get_feedback_old(guess: str, answer: str) -> int:
+def old_get_feedback(guess: str, answer: str) -> int:
     """
-    Returns a single integer representing feedback for the guess compared to the answer.
-    Each position uses 2 bits:
-    00 = grey (x), 01 = yellow (y), 10 = green (g).
-    The integer is constructed by shifting bits accordingly.
-    """
-
-    cache_key = (guess, answer)
-    if cache_key in _feedback_cache:
-        return _feedback_cache[cache_key]
-
-    feedback_num = 0
-    length = len(guess)
-    ord_dict_local = ord_dict
-
-    guess_ords = [ord_dict_local[c] for c in guess]
-    answer_ords = [ord_dict_local[c] for c in answer]
-
-    answer_counts = Counter(answer_ords)
-
-    green_mask = 0
-    # First pass: mark greens
-    for i in range(length):
-        g_ord = guess_ords[i]
-        if g_ord == answer_ords[i]:
-            feedback_num |= 2 << (2 * i)  # green
-            answer_counts[g_ord] -= 1
-            green_mask |= 1 << i
-
-    # Second pass: mark yellows
-    for i in range(length):
-        if not (green_mask & (1 << i)):
-            g_ord = guess_ords[i]
-            if answer_counts[g_ord] > 0:
-                feedback_num |= 1 << (2 * i)  # yellow
-                answer_counts[g_ord] -= 1
-
-    _feedback_cache[cache_key] = feedback_num
-    return feedback_num
-
-def get_feedback(guess: str, answer: str) -> int:
-    """
-    Old implementation of get_feedback with the same bit system.
     Implements Wordle feedback logic from scratch, ensuring correct handling of repeated letters.
     2 bits per position: 00=grey, 01=yellow, 10=green.
     """
@@ -191,6 +149,34 @@ def get_feedback(guess: str, answer: str) -> int:
 
     return feedback_num
 
+def get_feedback(guess: str, answer: str) -> int:
+    """
+    Implements Wordle feedback logic from scratch, ensuring correct handling of repeated letters.
+    2 bits per position: 00=grey, 01=yellow, 10=green.
+    """
+
+    cache_key = (guess, answer)
+    if cache_key in _feedback_cache:
+        return _feedback_cache[cache_key]
+
+    feedback_num = 0
+    length = len(guess)
+
+    # Count letters in answer manually without Counter
+    answer_letter_counts = {ch: answer.count(ch) for ch in set(answer)}
+
+    for i in range(length):
+        if guess[i] == answer[i]:
+            feedback_num |= 2 << (2 * i) # green
+            answer_letter_counts[guess[i]] -= 1
+        elif guess[i] in answer_letter_counts and answer_letter_counts[guess[i]] > 0:
+            feedback_num |= 1 << (2 * i) # yellow
+            answer_letter_counts[guess[i]] -= 1
+
+    _feedback_cache[cache_key] = feedback_num
+
+    return feedback_num
+
 def format_feedback(feedback_num: int) -> str:
     """
     Formats the feedback number back into a string of 'g', 'y', 'x' for printing.
@@ -207,7 +193,6 @@ def format_feedback(feedback_num: int) -> str:
         else:
             feedback_chars.append('x')
     return "".join(feedback_chars)
-
 def intify_feedback(feedback: str) -> int:
     reversed_feedback = feedback[::-1]
     return int(reversed_feedback.replace("g", "10").replace("y", "01").replace("x", "00"), 2)
