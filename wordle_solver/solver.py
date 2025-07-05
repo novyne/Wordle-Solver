@@ -104,8 +104,10 @@ def main():
         
         best_candidates = scorer(candidates).best(args.candidate_number, show_progress=True)
 
-        print(f"\nHere are {len(best_candidates)} / {len(candidates)} possible candidates you can try:")
+        print(f"\nThe solver suggests {len(best_candidates)} words:")
         print(format_candidates(best_candidates))
+        print(f"\nHere are {min(args.candidate_number, len(candidates))} / {len(candidates)} words that could be the answer:")
+        print(format_candidates(candidates[:args.candidate_number]))
 
 if __name__ == "__main__":
     main()
