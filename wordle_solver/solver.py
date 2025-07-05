@@ -87,7 +87,7 @@ def main():
 
     filter = Filter()
     
-    scorer = cs.EntropyScorer
+    scorer = cs.OptimisedEntropyScorer
 
     while True:
         filter = update_filter_from_input(filter)

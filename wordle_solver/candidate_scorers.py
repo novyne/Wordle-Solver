@@ -595,11 +595,24 @@ class OptimisedEntropyScorer:
             func=self.entropy
         )
         
-        # Ensure DB changes are committed
-        with self._db_lock:
-            self._conn.commit()
+        # Ensure DB changes are committed asynchronously
+        self._async_commit()
             
         return best_candidates
+  
+    def _async_commit(self):
+        """Commit the database in a separate thread."""
+
+        def commit_thread_func():
+            with self._db_lock:
+                try:
+                    self._conn.commit()
+                except Exception as e:
+                    print(f"DB async commit error: {e}")
+
+        thread = threading.Thread(target=commit_thread_func)
+        thread.daemon = True
+        thread.start()
 
     def __enter__(self):
         """Support context manager protocol for resource management."""
@@ -623,6 +636,53 @@ class OptimisedEntropyScorer:
         """Destructor for fallback cleanup."""
         self.close()
 
+class SimpleEntropyScorer:
+
+    """
+    Similar to EntropyScorer, but does not include any optimisations.
+    """
+
+    TESTING_ENABLED = True
+    STRICT_CANDIDATES = True
+    FIRST_GUESS = "soare"
+
+    def __init__(self, candidates: list[str]):
+        self.candidates = candidates
+
+    def entropy(self, candidate: str) -> float:
+        """
+        Calculate the entropy of a candidate word based on the distribution of feedback patterns
+        it produces against all remaining candidate answers.
+
+        This method does not use any optimizations and computes feedback on the fly.
+
+        Args:
+            candidate (str): The candidate word to calculate entropy for.
+
+        Returns:
+            float: The calculated entropy value representing expected information gain.
+        """
+        from collections import defaultdict
+        import math
+        from utils import get_feedback
+
+        patterns = defaultdict(int)
+        total = len(self.candidates)
+
+        for answer in self.candidates:
+            feedback = get_feedback(candidate, answer)
+            patterns[feedback] += 1
+
+        entropy = 0.0
+        for count in patterns.values():
+            p = count / total
+            entropy -= p * math.log2(p)
+
+        return entropy
+    
+    def best(self, n: int = 1, show_progress: bool = False) -> Union[List[str], str]:
+        return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Entropy scores...", func=self.entropy, candidates=WORDS)
+            
 class FastEntropyScorer:
 
     """
