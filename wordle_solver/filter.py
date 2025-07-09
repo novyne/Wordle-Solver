@@ -29,6 +29,15 @@ class Filter:
         self.min_counts = {}  # letter -> minimum count
         self.max_counts = {}  # letter -> maximum count
 
+    def __str__(self) -> str:
+        return f"""
+        Greens: {self.greens}
+        Yellows: {self.yellows}
+        Greys: {self.greys}
+        Min counts: {self.min_counts}
+        Max counts: {self.max_counts}
+        """
+
     def candidates(self, words: list[str]) -> list[str]:
         """
         Returns a list of words that satisfy all constraints: no grey letters,
@@ -127,143 +136,146 @@ class Filter:
     def strict_candidates(self, words: list[str]) -> list[str]:
         """
         Return a list of words that could be the answer based on the current state of the filter.
-        """
 
+        This method filters words by:
+        - Excluding words containing any grey letters.
+        - Ensuring green letters are in the correct positions.
+        - Ensuring yellow letters are present but not in forbidden positions.
+        - Enforcing min_counts and max_counts for letters.
+        """
         filtered = []
         for word in words:
-            # Check greys
-            if any(char in self.greys for char in word):
+            # Exclude words containing any grey letters
+            if any(ch in self.greys for ch in word):
                 continue
-            # Check greens: for each letter, all positions must have that letter
+
+            # Check green letters: must be in correct positions
             green_valid = True
-            for letter, positions in self.greens.items():
-                if any(word[pos] != letter for pos in positions):
+            for ch, positions in self.greens.items():
+                if any(pos >= len(word) or word[pos] != ch for pos in positions):
                     green_valid = False
                     break
             if not green_valid:
                 continue
-            # Check yellows: letter must be in word, but not in any bad positions
+
+            # Check yellow letters: must be present but not in forbidden positions
             yellow_valid = True
-            for letter, bad_positions in self.yellows.items():
-                # Calculate required count as green positions + yellow forbidden positions
-                green_positions = self.greens.get(letter, set())
-                required_count = len(green_positions) + len(bad_positions)
-                # The word must contain at least required_count of the letter
-                if word.count(letter) < required_count:
+            for ch, forbidden_positions in self.yellows.items():
+                # Word must contain at least min_counts[ch] occurrences of ch
+                if word.count(ch) < self.min_counts.get(ch, 0):
                     yellow_valid = False
                     break
-                # The letter must NOT be in any of the bad positions
-                if any(pos < len(word) and word[pos] == letter for pos in bad_positions):
+                # Letter must not be in any forbidden positions
+                if any(pos < len(word) and word[pos] == ch for pos in forbidden_positions):
                     yellow_valid = False
                     break
             if not yellow_valid:
                 continue
 
-            # New check: enforce min and max counts
+            # Count letters in word
             letter_counts = {}
-            for c in word:
-                letter_counts[c] = letter_counts.get(c, 0) + 1
+            for ch in word:
+                letter_counts[ch] = letter_counts.get(ch, 0) + 1
 
-            count_valid = True
-            for letter, min_count in self.min_counts.items():
-                if letter_counts.get(letter, 0) < min_count:
-                    count_valid = False
-                    break
-            if not count_valid:
+            # Enforce min_counts
+            if any(letter_counts.get(ch, 0) < min_ct for ch, min_ct in self.min_counts.items()):
                 continue
-            for letter, max_count in self.max_counts.items():
-                if letter_counts.get(letter, 0) > max_count:
-                    count_valid = False
-                    break
-            if not count_valid:
+
+            # Enforce max_counts
+            if any(letter_counts.get(ch, 0) > max_ct for ch, max_ct in self.max_counts.items()):
                 continue
 
             filtered.append(word)
+
         return filtered
 
     def update(self, guess: str, feedback: int) -> None:
         """
-        Updates the Filter with a guess and its corresponding feedback.
+        Fully rewritten update method to update filter state based on guess and feedback.
 
-        The green letters are stored in a map of letter to sets of positions,
-        the yellow letters are stored in a map of letter to sets of positions they cannot be in,
-        and the grey letters are stored in a set.
-        The maps are updated based on the feedback.
+        Args:
+            guess (str): The guessed word.
+            feedback (int): Encoded feedback integer with 2 bits per letter:
+                            0 = grey, 1 = yellow, 2 = green.
+
+        Updates:
+            - self.greens: dict of letter to set of positions confirmed green.
+            - self.yellows: dict of letter to set of positions forbidden (yellow positions).
+            - self.greys: set of letters confirmed absent.
+            - self.min_counts: minimum count of each letter.
+            - self.max_counts: maximum count of each letter.
         """
+        def get_feedback_color(pos: int) -> int:
+            return (feedback >> (2 * pos)) & 0b11
 
-        # Collect yellow positions per letter in current guess
-        current_yellow_positions_map = {}
-        for i, char in enumerate(guess):
-            digit = (feedback >> (2 * i)) & 0b11
-            if digit == 1:  # yellow
-                if char not in current_yellow_positions_map:
-                    current_yellow_positions_map[char] = set()
-                current_yellow_positions_map[char].add(i)
+        # Temporary structures to track counts and positions
+        green_positions = {}
+        yellow_positions = {}
+        grey_letters = set()
 
-        # Count occurrences of each letter in guess by feedback type
         green_counts = {}
         yellow_counts = {}
         grey_counts = {}
 
-        for i, char in enumerate(guess):
-            digit = (feedback >> (2 * i)) & 0b11
-            if digit == 2:  # green
-                green_counts[char] = green_counts.get(char, 0) + 1
-            elif digit == 1:  # yellow
-                yellow_counts[char] = yellow_counts.get(char, 0) + 1
-            elif digit == 0:  # grey
-                grey_counts[char] = grey_counts.get(char, 0) + 1
+        # First pass: parse feedback and collect info
+        for i, ch in enumerate(guess):
+            color = get_feedback_color(i)
+            if color == 2:  # green
+                green_positions.setdefault(ch, set()).add(i)
+                green_counts[ch] = green_counts.get(ch, 0) + 1
+            elif color == 1:  # yellow
+                yellow_positions.setdefault(ch, set()).add(i)
+                yellow_counts[ch] = yellow_counts.get(ch, 0) + 1
+            else:  # grey
+                grey_counts[ch] = grey_counts.get(ch, 0) + 1
 
-        for i, char in enumerate(guess):
-            digit = (feedback >> (2 * i)) & 0b11
-            if digit == 2:  # green
-                if char not in self.greens:
-                    self.greens[char] = set()
-                self.greens[char].add(i)
-                # Remove green positions from yellow forbidden positions for this letter
-                if char in self.yellows:
-                    self.yellows[char] = self.yellows[char].difference(self.greens[char])
-                    if not self.yellows[char]:
-                        del self.yellows[char]
-            if digit == 1:  # yellow
-                if char in self.greys:
-                    self.greys.remove(char)
-                # Always accumulate yellow forbidden positions for this letter
-                if char not in self.yellows:
-                    self.yellows[char] = set()
-                self.yellows[char].update(current_yellow_positions_map[char])
-                # Remove from greys if present
-                if char in self.greys:
-                    self.greys.remove(char)
-            elif digit == 0:  # grey
-                # Only add to greys if letter not green or yellow anywhere in guess
-                if char not in self.yellows and char not in self.greens:
-                    self.greys.add(char)
+        # Update greens: add positions
+        for ch, positions in green_positions.items():
+            if ch not in self.greens:
+                self.greens[ch] = set()
+            self.greens[ch].update(positions)
 
-        # Update min_counts and max_counts based on feedback counts
-        for char in set(guess):
-            green = green_counts.get(char, 0)
-            yellow = yellow_counts.get(char, 0)
-            grey = grey_counts.get(char, 0)
+        # Update yellows: add forbidden positions
+        for ch, positions in yellow_positions.items():
+            if ch not in self.yellows:
+                self.yellows[ch] = set()
+            self.yellows[ch].update(positions)
 
-            min_count = green + yellow
-            # If letter has any grey occurrences, max count is min_count (no more than green+yellow)
-            if grey > 0:
-                max_count = min_count
-            else:
-                max_count = self.length  # no upper bound
+        # Remove any yellow forbidden positions that overlap with green positions
+        for ch in green_positions:
+            if ch in self.yellows:
+                self.yellows[ch].difference_update(self.greens[ch])
+                if not self.yellows[ch]:
+                    del self.yellows[ch]
 
-            # Update min_counts
-            if char in self.min_counts:
-                self.min_counts[char] = max(self.min_counts[char], min_count)
-            else:
-                self.min_counts[char] = min_count
+        # Update greys: letters that are grey and not green or yellow anywhere in guess
+        for ch in grey_counts:
+            if ch not in green_positions and ch not in yellow_positions:
+                self.greys.add(ch)
 
-            # Update max_counts
-            if char in self.max_counts:
-                self.max_counts[char] = min(self.max_counts[char], max_count)
-            else:
-                self.max_counts[char] = max_count
-        
-        # Remove all grey letters that are in greens or yellows
-        self.greys = self.greys.difference(self.greens.keys()).difference(self.yellows.keys())
+        # Remove letters from greys if they appear in greens or yellows
+        self.greys.difference_update(self.greens.keys())
+        self.greys.difference_update(self.yellows.keys())
+
+        # Update min_counts and max_counts for each letter in guess
+        letters_in_guess = set(guess)
+        for ch in letters_in_guess:
+            green_ct = green_counts.get(ch, 0)
+            yellow_ct = yellow_counts.get(ch, 0)
+            grey_ct = grey_counts.get(ch, 0)
+
+            min_ct = green_ct + yellow_ct
+            max_ct = min_ct if grey_ct > 0 else self.length
+
+            self.min_counts[ch] = max(self.min_counts.get(ch, 0), min_ct)
+            self.max_counts[ch] = min(self.max_counts.get(ch, self.length), max_ct)
+
+        # Clean up yellows: remove letters with no forbidden positions and no yellow count
+        for ch in list(self.yellows.keys()):
+            green_pos_count = len(self.greens.get(ch, set()))
+            min_ct = self.min_counts.get(ch, 0)
+            yellow_pos = self.yellows.get(ch, set())
+            yellow_ct = max(min_ct - green_pos_count, 0)
+
+            if min_ct <= green_pos_count and not yellow_pos and yellow_ct == 0:
+                del self.yellows[ch]

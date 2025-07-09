@@ -169,7 +169,9 @@ def get_feedback(guess: str, answer: str) -> int:
         if guess[i] == answer[i]:
             feedback_num |= 2 << (2 * i) # green
             answer_letter_counts[guess[i]] -= 1
-        elif guess[i] in answer_letter_counts and answer_letter_counts[guess[i]] > 0:
+
+    for i in range(length):
+        if guess[i] in answer_letter_counts and answer_letter_counts[guess[i]] > 0:
             feedback_num |= 1 << (2 * i) # yellow
             answer_letter_counts[guess[i]] -= 1
 
