@@ -155,6 +155,9 @@ def get_feedback(guess: str, answer: str) -> int:
     cache_key = (guess, answer)
     if cache_key in _feedback_cache:
         return _feedback_cache[cache_key]
+    # Feedback has the same result for reversed guess and answer
+    if (answer, guess) in _feedback_cache:
+        return _feedback_cache[(answer, guess)]
 
     feedback_num = 0
     length = len(guess)
@@ -190,6 +193,7 @@ def format_feedback(feedback_num: int) -> str:
         else:
             feedback_chars.append('x')
     return "".join(feedback_chars)
+
 def intify_feedback(feedback: str) -> int:
     reversed_feedback = feedback[::-1]
     return int(reversed_feedback.replace("g", "10").replace("y", "01").replace("x", "00"), 2)
