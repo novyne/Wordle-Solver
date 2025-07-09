@@ -148,10 +148,12 @@ class Filter:
                 # Calculate required count as green positions + yellow forbidden positions
                 green_positions = self.greens.get(letter, set())
                 required_count = len(green_positions) + len(bad_positions)
+                # The word must contain at least required_count of the letter
                 if word.count(letter) < required_count:
                     yellow_valid = False
                     break
-                if any(word[pos] == letter for pos in bad_positions):
+                # The letter must NOT be in any of the bad positions
+                if any(pos < len(word) and word[pos] == letter for pos in bad_positions):
                     yellow_valid = False
                     break
             if not yellow_valid:
@@ -218,25 +220,18 @@ class Filter:
                 if char not in self.greens:
                     self.greens[char] = set()
                 self.greens[char].add(i)
-                # Remove yellow forbidden positions for this letter that are not in current guess's yellow positions
+                # Remove green positions from yellow forbidden positions for this letter
                 if char in self.yellows:
-                    current_yellow_positions = current_yellow_positions_map.get(char, set())
-                    self.yellows[char] = self.yellows[char].intersection(current_yellow_positions)
+                    self.yellows[char] = self.yellows[char].difference(self.greens[char])
                     if not self.yellows[char]:
                         del self.yellows[char]
             if digit == 1:  # yellow
                 if char in self.greys:
                     self.greys.remove(char)
-                # Only add yellow forbidden positions if green count + yellow count < total occurrences in guess
-                green_count = len(self.greens.get(char, set()))
-                yellow_count = len(current_yellow_positions_map[char])
-                total_count_in_guess = sum(1 for c in guess if c == char)
-                if green_count + yellow_count < total_count_in_guess:
-                    self.yellows[char] = current_yellow_positions_map[char]
-                else:
-                    # Remove yellow forbidden positions if all occurrences are green or yellow
-                    if char in self.yellows:
-                        del self.yellows[char]
+                # Always accumulate yellow forbidden positions for this letter
+                if char not in self.yellows:
+                    self.yellows[char] = set()
+                self.yellows[char].update(current_yellow_positions_map[char])
                 # Remove from greys if present
                 if char in self.greys:
                     self.greys.remove(char)
