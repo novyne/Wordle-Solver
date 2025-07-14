@@ -1,7 +1,7 @@
 import random as rnd
 
 from wordle_solver.filter import Filter
-from utils import WORDS, args, get_feedback
+from utils import WORDS, args, get_feedback, format_feedback
 
 def validate_guess(guess: str, filter: Filter) -> bool:
     if not guess.isalpha():
@@ -34,7 +34,7 @@ def play() -> None:
             return
 
         feedback = get_feedback(guess, answer)
-        print("Feedback:\t" + feedback)
+        print("Feedback:\t" + format_feedback(feedback))
 
         filter.update(guess, feedback)
 
