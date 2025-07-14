@@ -7,7 +7,7 @@ import signal
 import sqlite3
 import threading
 
-from collections import defaultdict
+from collections import defaultdict, Counter
 from functools import lru_cache
 from typing import List, Union
 
@@ -15,7 +15,7 @@ from utils import get_feedback, WORDS
 
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn
 
-def _best_with_progress(scorer, n=1, show_progress=False, description="Calculating scores...", candidates=None, func=None):
+def _best_with_progress(scorer, n=1, show_progress=False, description="Calculating scores...", candidates=None, func=None) -> list[str]:
     """
     Helper function to compute top n candidates with optional rich progress bar.
     Uses scorer.candidates and scorer.score method.
@@ -32,7 +32,7 @@ def _best_with_progress(scorer, n=1, show_progress=False, description="Calculati
 
     if not show_progress:
         if n == 1:
-            return max(candidates, key=func)
+            return [max(candidates, key=func)]
         else:
             return [candidate for candidate, score in heapq.nlargest(n, ((c, func(c)) for c in candidates), key=lambda x: x[1])]
     else:
@@ -179,7 +179,7 @@ class IntuitiveScorer:
 
         return score
 
-    def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
+    def best(self, n: int = 1, show_progress: bool=False) -> list[str]:
         return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Intuitive scores...")
 
 class ReductionScorer:
@@ -238,7 +238,7 @@ class ReductionScorer:
         # Return negative average remaining to rank candidates that reduce more higher
         return -average_remaining * 100 + score
 
-    def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
+    def best(self, n: int = 1, show_progress: bool=False) -> list[str]:
         return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Reduction scores...")
 
 class EntropyScorer:
@@ -385,14 +385,7 @@ class EntropyScorer:
 
         return e
 
-    def __del__(self):
-        try:
-            self._conn.commit()
-            self._conn.close()
-        except Exception:
-            pass
-
-    def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
+    def best(self, n: int = 1, show_progress: bool=False) -> list[str]:
         try:
             best = _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Entropy scores...", candidates=WORDS, func=self.entropy)
             self._conn.commit()
@@ -450,6 +443,14 @@ class OptimisedEntropyScorer:
         self._precompute_thread = threading.Thread(target=self._precompute_feedback_cache, daemon=True)
         self._precompute_thread.start()
 
+        # Precompute letter frequency counts for quick_entropy_upper_bound optimization
+        self._letter_counts = Counter()
+        self._total_letters = 0
+        for word in self.candidates:
+            unique_letters = set(word)
+            self._letter_counts.update(unique_letters)
+            self._total_letters += len(unique_letters)
+
     def _init_database(self):
         """Initialize the SQLite database connection with optimized settings."""
         feedback_dir = os.path.join(os.getcwd(), "feedback")
@@ -500,10 +501,8 @@ class OptimisedEntropyScorer:
                     pairs,
                     chunksize=chunk_size
                 )
-                # Collect results in a list first
-                collected_results = list(results)
-                # Update the feedback cache after all results are collected
-                for candidate, answer, feedback in collected_results:
+                # Update the feedback cache incrementally to reduce memory usage
+                for candidate, answer, feedback in results:
                     self._feedback_cache[(candidate, answer)] = feedback
         except Exception as e:
             print(f"Exception in multiprocessing pool: {e}")
@@ -516,35 +515,45 @@ class OptimisedEntropyScorer:
             raise
 
     @lru_cache(maxsize=5000)
-    def entropy(self, candidate: str) -> float:
+    def entropy(self, candidate: str, threshold: float = -1.0) -> float:
         """
         Calculate the entropy of a candidate word with caching at multiple levels.
+        Supports early stopping if entropy cannot exceed the given threshold.
         
-        Uses:
-        - LRU in-memory cache for frequent candidates
-        - Persistent SQLite cache for long-term storage
-        - Precomputed feedback cache for fast pattern calculation
+        Args:
+            candidate (str): The candidate word to calculate entropy for.
+            threshold (float): Early stopping threshold. If partial entropy plus max possible remaining entropy
+                               is less than or equal to this, stop calculation early.
+        
+        Returns:
+            float: The calculated entropy value or a value less than or equal to threshold if early stopped.
         """
-        # Try to get from memory cache first
-        cache_key = (candidate, self._candidate_set_hash)
         
-        # Check database cache
-        with self._db_lock:
-            cursor = self._conn.cursor()
-            try:
-                cursor.execute("""
-                    SELECT entropy FROM entropy 
-                    WHERE guess=? AND answer=? AND candidate_set_hash=?
-                """, (candidate, "", self._candidate_set_hash))
-                if (row := cursor.fetchone()):
-                    return row[0]
-            except Exception as e:
-                print(f"DB read error: {e}")
-            finally:
-                cursor.close()
+        # Check database cache only if no threshold or threshold is very low (to avoid false positives)
+        if threshold < 0:
+            with self._db_lock:
+                cursor = self._conn.cursor()
+                try:
+                    cursor.execute("""
+                        SELECT entropy FROM entropy 
+                        WHERE guess=? AND answer=? AND candidate_set_hash=?
+                    """, (candidate, "", self._candidate_set_hash))
+                    if (row := cursor.fetchone()):
+                        return row[0]
+                except Exception as e:
+                    print(f"DB read error: {e}")
+                finally:
+                    cursor.close()
 
-        # Calculate entropy from feedback patterns
-        patterns = defaultdict(int)
+        # Calculate entropy from feedback patterns with early stopping
+        total = len(self.candidates)
+        entropy = 0.0
+        total_answers = 0
+
+        pattern_counts = defaultdict(int)
+        pattern_probs = {}
+        entropy_contribs = {}
+
         for answer in self.candidates:
             with threading.Lock():
                 feedback = self._feedback_cache.get((candidate, answer))
@@ -552,32 +561,90 @@ class OptimisedEntropyScorer:
                 feedback = get_feedback(candidate, answer)
                 with threading.Lock():
                     self._feedback_cache[(candidate, answer)] = feedback
-            patterns[feedback] += 1
 
-        total = len(self.candidates)
-        entropy = -sum(count * math.log2(count/total) for count in patterns.values())
-        entropy /= total
+            old_count = pattern_counts[feedback]
+            new_count = old_count + 1
+            pattern_counts[feedback] = new_count
+            total_answers += 1
 
-        # Cache result in database
-        with self._db_lock:
-            cursor = self._conn.cursor()
-            try:
-                cursor.execute("""
-                    INSERT OR REPLACE INTO entropy 
-                    (guess, answer, entropy, candidate_set_hash)
-                    VALUES (?, ?, ?, ?)
-                """, (candidate, "", entropy, self._candidate_set_hash))
-                self._conn.commit()
-            except Exception as e:
-                print(f"DB write error: {e}")
-            finally:
-                cursor.close()
+            # Update probabilities and entropy contributions incrementally
+            old_prob = pattern_probs.get(feedback, 0)
+            new_prob = new_count / total_answers
+            pattern_probs[feedback] = new_prob
+
+            # Calculate new entropy contribution for this pattern
+            new_entropy_contrib = -new_prob * math.log2(new_prob) if new_prob > 0 else 0
+
+            # Calculate old entropy contribution for this pattern
+            old_entropy_contrib = entropy_contribs.get(feedback, 0)
+
+            # Update entropy by removing old contribution and adding new contribution
+            entropy += new_entropy_contrib - old_entropy_contrib
+
+            # Store new entropy contribution
+            entropy_contribs[feedback] = new_entropy_contrib
+
+            # Adjust other pattern probabilities due to total_answers change
+            for pattern, count in pattern_counts.items():
+                if pattern != feedback:
+                    old_p = pattern_probs.get(pattern, 0)
+                    new_p = count / total_answers
+                    if old_p != new_p:
+                        old_ec = entropy_contribs.get(pattern, 0)
+                        new_ec = -new_p * math.log2(new_p) if new_p > 0 else 0
+                        entropy += new_ec - old_ec
+                        pattern_probs[pattern] = new_p
+                        entropy_contribs[pattern] = new_ec
+
+            # Early stopping check: if entropy so far plus max possible remaining entropy < threshold, stop
+            max_possible_entropy = math.log2(total)  # Max entropy if all patterns equally likely
+            if threshold >= 0 and entropy + (max_possible_entropy * (total - total_answers) / total) <= threshold:
+                # Return a value less than or equal to threshold to indicate early stop
+                return threshold - 0.0001
+
+        # Cache result in database if no threshold or threshold < 0
+        if threshold < 0:
+            with self._db_lock:
+                cursor = self._conn.cursor()
+                try:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO entropy 
+                        (guess, answer, entropy, candidate_set_hash)
+                        VALUES (?, ?, ?, ?)
+                    """, (candidate, "", entropy, self._candidate_set_hash))
+                    self._conn.commit()
+                except Exception as e:
+                    print(f"DB write error: {e}")
+                finally:
+                    cursor.close()
 
         return entropy
 
-    def best(self, n: int = 1, show_progress: bool = False) -> Union[List[str], str]:
+    def quick_entropy_upper_bound(self, candidate: str) -> float:
         """
-        Find the top n candidates with highest entropy.
+        Quick heuristic to estimate an upper bound on entropy for a candidate.
+        Uses distribution of letter frequencies in candidate set to estimate max entropy.
+        """
+        # Use precomputed letter frequency counts
+        freqs = []
+        unique_letters = set(candidate)
+        for letter in unique_letters:
+            freq = self._letter_counts.get(letter, 0) / self._total_letters if self._total_letters > 0 else 0
+            freqs.append(freq)
+
+        # Estimate entropy upper bound as sum of -p*log2(p) for letter frequencies
+        entropy_bound = 0.0
+        for p in freqs:
+            if p > 0:
+                entropy_bound -= p * math.log2(p)
+
+        # Scale by number of unique letters to approximate entropy
+        entropy_bound *= len(unique_letters)
+        return entropy_bound
+
+    def best(self, n: int = 1, show_progress: bool = False) -> list[str]:
+        """
+        Find the top n candidates with highest entropy using early elimination optimization.
         
         Args:
             n: Number of top candidates to return
@@ -586,19 +653,56 @@ class OptimisedEntropyScorer:
         Returns:
             List of top candidates or single string if n=1
         """
-        best_candidates = _best_with_progress(
-            self,
-            n=n,
-            show_progress=show_progress,
-            description="Calculating Entropy scores...",
-            candidates=WORDS,
-            func=self.entropy
-        )
+        best_entropy = -1.0
+        candidates_scores = []
+
+        if len(self.candidates) == 1:
+            return self.candidates
+
+        if not show_progress:
+            for candidate in WORDS:
+                upper_bound = self.quick_entropy_upper_bound(candidate)
+                if upper_bound <= best_entropy:
+                    # Skip full entropy calculation if upper bound is not better
+                    continue
+                score = self.entropy(candidate, threshold=best_entropy)
+                if score > best_entropy:
+                    best_entropy = score
+                candidates_scores.append((candidate, score))
         
+        else:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeElapsedColumn(),
+                TimeRemainingColumn(),
+                TextColumn("{task.fields[current_word]}", justify="right"),
+            ) as progress:
+                
+                task = progress.add_task("[green]Calculating Entropy scores...", total=len(WORDS), current_word="")
+                for candidate in WORDS:
+                    upper_bound = self.quick_entropy_upper_bound(candidate)
+                    if upper_bound <= best_entropy:
+                        # Skip full entropy calculation if upper bound is not better
+                        progress.update(task, advance=1, current_word=f"[bright_blue]{candidate} (skipped)")
+                        continue
+                    score = self.entropy(candidate, threshold=best_entropy)
+                    if score > best_entropy:
+                        best_entropy = score
+                    candidates_scores.append((candidate, score))
+                    progress.update(task, advance=1, current_word=f"[bright_blue]{candidate}")
+
         # Ensure DB changes are committed asynchronously
         self._async_commit()
-            
-        return best_candidates
+
+        # Get top n candidates by score
+        candidates_scores.sort(key=lambda x: x[1], reverse=True)
+        if n == 1:
+            return candidates_scores[0][0]
+        else:
+            return [candidate for candidate, score in candidates_scores[:n]]
   
     def _async_commit(self):
         """Commit the database in a separate thread."""
@@ -680,7 +784,7 @@ class SimpleEntropyScorer:
 
         return entropy
     
-    def best(self, n: int = 1, show_progress: bool = False) -> Union[List[str], str]:
+    def best(self, n: int = 1, show_progress: bool = False) -> list[str]:
         return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Entropy scores...", func=self.entropy, candidates=WORDS)
             
 class FastEntropyScorer:
@@ -697,7 +801,7 @@ class FastEntropyScorer:
     def __init__(self, candidates: list[str]):
         self.candidates = candidates
 
-    def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
+    def best(self, n: int = 1, show_progress: bool=False) -> list[str]:
         es = OptimisedEntropyScorer(self.candidates)
         best = _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Fast Entropy scores...", func=es.entropy)
         es._conn.commit()
@@ -723,7 +827,7 @@ class HybridScorer:
             return ReductionScorer(self.candidates).score(candidate) * 1500# + IntuitiveScorer:(self.candidates).score(candidate) * 0.01
         return IntuitiveScorer(self.candidates).score(candidate)
 
-    def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
+    def best(self, n: int = 1, show_progress: bool=False) -> list[str]:
         return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Hybrid scores...")
 
 class StrictHybridScorer:
@@ -746,5 +850,5 @@ class StrictHybridScorer:
             return ReductionScorer(self.candidates).score(candidate) * 1500# + IntuitiveScorer:(self.candidates).score(candidate) * 0.01
         return IntuitiveScorer(self.candidates).score(candidate)
 
-    def best(self, n: int = 1, show_progress: bool=False) -> list[str] | str:
+    def best(self, n: int = 1, show_progress: bool=False) -> list[str]:
         return _best_with_progress(self, n=n, show_progress=show_progress, description="Calculating Strict Hybrid scores...")
