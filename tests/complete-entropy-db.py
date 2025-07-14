@@ -47,7 +47,7 @@ def complete_entropy(filter: Filter, depth: int) -> None:
     if depth == DEPTH:
         best_guess = scorer.FIRST_GUESS
     else:
-        best_guess = scorer(filter.candidates(words)).best(show_progress=True)
+        best_guess = scorer(filter.candidates(words)).best(show_progress=True)[0]
 
     # Update a filter with all possible patterns
     answers = filter.strict_candidates(words)
@@ -60,7 +60,7 @@ def complete_entropy(filter: Filter, depth: int) -> None:
         new_filter = Filter(greens=filter.greens.copy(), yellows=filter.yellows.copy(), greys=filter.greys.copy(), length=filter.length)
         new_filter.update(best_guess, pattern)
 
-        print(f"({str(i).zfill(2)}) {format_feedback(pattern)}:",end='\t')
+        print(f"({str(i).zfill(2)}) {format_feedback(pattern)} {pattern}:",end='\t')
 
         complete_entropy(new_filter, depth - 1)
 
