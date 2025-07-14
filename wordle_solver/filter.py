@@ -274,8 +274,11 @@ class Filter:
         for ch in list(self.yellows.keys()):
             green_pos_count = len(self.greens.get(ch, set()))
             min_ct = self.min_counts.get(ch, 0)
+            max_ct = self.max_counts.get(ch, self.length)
             yellow_pos = self.yellows.get(ch, set())
             yellow_ct = max(min_ct - green_pos_count, 0)
 
-            if min_ct <= green_pos_count and not yellow_pos and yellow_ct == 0:
+            # Remove yellow if min count <= green count and no forbidden positions and no yellow count
+            # OR if max count <= green count (no more yellow occurrences possible)
+            if (min_ct <= green_pos_count and not yellow_pos and yellow_ct == 0) or (max_ct <= green_pos_count):
                 del self.yellows[ch]
